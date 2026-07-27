@@ -205,6 +205,7 @@ export function useCallOverlayRuntime(options = {}) {
       pendingSpeechCount += 1
 
       speakSentence(cleaned, {
+        contactId: String(callContactId.value || contact.value?.id || '').trim(),
         emotion: ttsEmotion,
         onEnded: () => {
           pendingSpeechCount = Math.max(0, pendingSpeechCount - 1)

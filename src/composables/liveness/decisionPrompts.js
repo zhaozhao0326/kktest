@@ -1,7 +1,16 @@
 import { usePlannerStore } from '../../stores/planner'
 import { formatBeijingLocale, getBeijingTimeHHMM } from '../../utils/beijingTime'
 import { toLocalDateKey } from '../../utils/dateKey'
+import { extractPersonaFromPrompt } from '../../utils/personaPrompt'
 import { getTimePeriodLabel } from './eventTypes'
+
+// 决策 prompt 中人设的截断上限。先过滤掉输出格式等指令行再截断，
+// 避免长人设角色在主动消息里 OOC（此前直接 slice(0,500) 常常只剩格式规则）。
+const DECISION_PERSONA_MAX_CHARS = 2000
+
+function buildCharacterBrief(contact) {
+  return extractPersonaFromPrompt(contact?.prompt, { maxChars: DECISION_PERSONA_MAX_CHARS })
+}
 
 export function formatNowTimeHHMM(now = new Date()) {
   return getBeijingTimeHHMM(now)
@@ -43,8 +52,13 @@ export function describeEventAsFeeling(event) {
       return `现在是${label}。你想到了对方，考虑要不要发个消息。`
     }
     case 'moment_post':
-    case 'MOMENT_POST':
-      return `对方刚发了一条动态。你看到了。`
+    case 'MOMENT_POST': {
+      const author = ctx.authorName || '对方'
+      const snippet = String(ctx.postContent || '').slice(0, 80)
+      const idHint = ctx.momentId ? `（动态ID: ${ctx.momentId}）` : ''
+      if (snippet) return `${author}刚发了一条动态：「${snippet}」${idHint}。你刷到了。`
+      return `${author}刚发了一条动态${idHint}。你刷到了。`
+    }
     case 'planner_reminder':
     case 'PLANNER_REMINDER': {
       const title = ctx.eventTitle || '某个待办'
@@ -68,19 +82,23 @@ export function buildDecisionSystemPrompt(contact, stateDesc, event, {
   delayMin = 5,
   delayMax = 120,
   proactiveCount24h = 0,
-  recentProactiveSummaries = []
+  recentProactiveSummaries = [],
+  momentsDigest = ''
 } = {}) {
   const charName = contact.name || 'AI'
-  const charPrompt = (contact.prompt || '').slice(0, 500)
+  const charPrompt = buildCharacterBrief(contact)
 
   const momentAction = allowMoments
-    ? ' | post_moment'
+    ? ' | post_moment | comment_moment | like_moment'
     : ''
   const momentField = allowMoments
-    ? '\n- moment=动态内容（仅 action=post_moment 必填）'
+    ? '\n- moment=动态内容（仅 action=post_moment 必填）\n- target=动态ID（comment_moment/like_moment 必填，可用 latest 指最新一条）\n- comment=评论内容（仅 action=comment_moment 必填）'
     : ''
   const momentSample = allowMoments
-    ? '\naction=post_moment\nmoment=今天的天空很好看'
+    ? '\naction=post_moment\nmoment=今天的天空很好看\naction=comment_moment\ntarget=latest\ncomment=哈哈哈这也太真实了'
+    : ''
+  const momentsFeedBlock = allowMoments && momentsDigest
+    ? `\n<recent_moments>\n你最近刷到的朋友圈动态：\n${momentsDigest}\n</recent_moments>`
     : ''
 
   const feeling = describeEventAsFeeling(event)
@@ -120,7 +138,7 @@ ${stateDesc}
 当前时间: ${formatBeijingLocale(new Date())}
 时段: ${getTimePeriodLabel()}
 </current_state>
-${scheduleBlock}
+${scheduleBlock}${momentsFeedBlock}
 <situation>
 ${feeling}
 </situation>
@@ -157,6 +175,8 @@ ${recentProactiveText}
 - 孤独感高的时候更可能想找人说话
 - 精力低/心情差时，可能不想说话，也可能想找人倾诉——取决于你的性格
 - 发动态（post_moment）应该是自然的、偶尔的行为
+- 看到感兴趣的动态时，评论（comment_moment）或点赞（like_moment）比私聊更轻、更自然——刷到熟人的动态随手点个赞很正常
+- 评论内容要像真实朋友圈评论：简短、口语化，可以调侃、接梗、关心
 - "read_only" 适用于：你看到了但不想回应
 - 不要每次都发消息，即使关系很好也要有节奏感
 - 今天主动次数越多，越应该克制；没有新鲜理由就优先 ignore
@@ -181,7 +201,7 @@ ${momentSample}`
 // 聊天已读不回专用 prompt
 export function buildChatReadOnlyPrompt(contact, stateDesc, userMessage, { requireReason = false } = {}) {
   const charName = contact.name || 'AI'
-  const charPrompt = (contact.prompt || '').slice(0, 500)
+  const charPrompt = buildCharacterBrief(contact)
   const reasonRule = requireReason
     ? '当你选择不回复（reply=0）时，必须输出 reason，且要简短（最多14个字）。'
     : '不要输出 reason。'

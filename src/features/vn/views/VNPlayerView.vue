@@ -15,13 +15,34 @@
       </div>
 
       <VNControls
-        :is-auto="player.isAutoPlay"
+        :mode="player.isSkipping ? 'skip' : (player.isAutoPlay ? 'auto' : 'off')"
         :is-generating="player.isGenerating || player.isGeneratingImage"
         @toggle-auto="toggleAutoPlay"
         @show-history="showHistory = true"
         @menu="toggleMenu"
       />
     </div>
+
+    <!-- ===== Mode Pill (AUTO / SKIP) ===== -->
+    <Transition name="vn-mode">
+      <button
+        v-if="player.isAutoPlay || player.isSkipping"
+        class="vn-mode-pill"
+        :class="player.isSkipping ? 'skip' : 'auto'"
+        @click.stop="cancelMode"
+      >
+        <span class="vn-mode-label">{{ player.isSkipping ? 'SKIP ▸▸' : 'AUTO ▸' }}</span>
+        <i class="ph-bold ph-x"></i>
+      </button>
+    </Transition>
+
+    <!-- ===== Generating Pill ===== -->
+    <Transition name="vn-gen">
+      <div v-if="player.isGenerating || player.isGeneratingImage" class="vn-gen-pill">
+        <i class="ph ph-circle-notch vn-gen-spin"></i>
+        <span>{{ player.isGeneratingImage ? '绘制画面中…' : '剧情生成中…' }}</span>
+      </div>
+    </Transition>
 
     <!-- ===== Narration (serif typewriter) ===== -->
     <VNNarration
@@ -30,6 +51,7 @@
       :text-speed="player.textSpeed"
       :is-playing="player.isPlaying"
       @complete="onNarrationComplete"
+      @advance="handleTap"
     />
 
     <!-- ===== Dialog (glassmorphism) ===== -->
@@ -48,6 +70,7 @@
       v-if="player.currentChoices"
       :options="player.currentChoices"
       @select="onChoiceSelect"
+      @custom="onCustomChoice"
     />
 
     <!-- ===== Input Bar ===== -->
@@ -78,7 +101,12 @@
       <VNHistory v-if="showHistory" @close="showHistory = false" />
     </Transition>
     <Transition name="vn-panel">
-      <VNSaveLoad v-if="showSave" @close="showSave = false" />
+      <VNSaveLoad
+        v-if="showSave"
+        @before-load="cancelActivePlayback('load')"
+        @loaded="resumeLoadedGame"
+        @close="showSave = false"
+      />
     </Transition>
     <Transition name="vn-panel">
       <VNSettingsPanel v-if="showSettings" @close="showSettings = false" />
@@ -151,6 +179,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useVNStore } from '../../../stores/vn'
 import { useStorage } from '../../../composables/useStorage'
+import { useToast } from '../../../composables/useToast'
 import { useVNApi } from '../composables/useVNApi'
 import { useImageGen } from '../../../composables/useImageGen'
 import { useTTS } from '../../../composables/useTTS'
@@ -172,10 +201,14 @@ const router = useRouter()
 const route = useRoute()
 const vnStore = useVNStore()
 const { scheduleSave } = useStorage()
+const { showToast } = useToast()
 const { startStory, sendChoice, sendInput } = useVNApi()
-const { generateBackground, generateSprite } = useImageGen()
+const { generateBackground, generateSprite, processSpriteCutout } = useImageGen()
 const { speak, stopSpeaking } = useTTS()
 const bgm = useBGM()
+
+let currentSpeakPromise = null
+let playbackRunId = 0
 
 const showHistory = ref(false)
 const showSave = ref(false)
@@ -195,6 +228,10 @@ const player = vnStore.player
 const projectTitle = computed(() => project.value?.name || 'VN')
 
 const sceneLabel = computed(() => {
+  const scene = player.currentScene || {}
+  const sceneParts = [scene.location, scene.time].map(value => String(value || '').trim()).filter(Boolean)
+  if (sceneParts.length > 0) return sceneParts.join(' · ')
+
   const name = player.currentBg?.name
   if (!name) return projectTitle.value
   return name.replace(/_/g, ' \u00B7 ')
@@ -203,7 +240,8 @@ const sceneLabel = computed(() => {
 const showStartOverlay = computed(() => {
   if (!project.value) return false
   const hasAny = (project.value.history?.length || 0) > 0
-  const hasRuntime = !!player.currentDialog || !!player.currentBg || (player.sprites?.length || 0) > 0
+  const hasScene = !!player.currentScene?.location || !!player.currentScene?.time
+  const hasRuntime = !!player.currentDialog || !!player.currentBg || hasScene || (player.sprites?.length || 0) > 0
   return !hasAny && !hasRuntime && !player.isGenerating
 })
 
@@ -257,16 +295,46 @@ watch(projectId, () => {
 })
 
 onBeforeUnmount(() => {
+  cancelActivePlayback('unmount')
   stopSpeaking()
   bgm.stop()
   document.removeEventListener('keydown', handleKeydown)
 })
 
-function goHome() { stopSpeaking(); bgm.stop(); router.push('/vn') }
+function goHome() { cancelActivePlayback('leave'); stopSpeaking(); bgm.stop(); router.push('/vn') }
 function goSetup() { router.push(`/vn/setup/${projectId.value}`) }
 function goResources() { showMenu.value = false; router.push(`/vn/resources/${projectId.value}`) }
 function toggleMenu() { showMenu.value = !showMenu.value }
-function toggleAutoPlay() { player.isAutoPlay = !player.isAutoPlay }
+function toggleAutoPlay() {
+  if (player.isSkipping) {
+    player.isSkipping = false
+  } else if (player.isAutoPlay) {
+    player.isAutoPlay = false
+    player.isSkipping = true
+    stopSpeaking()
+  } else {
+    player.isAutoPlay = true
+  }
+  // 唤醒等待中的推进循环，让它按新模式重新评估
+  if (player._resolveWait) {
+    const resolve = player._resolveWait
+    player._resolveWait = null
+    player.isWaitingInput = false
+    resolve('mode')
+  }
+}
+
+function cancelMode() {
+  player.isAutoPlay = false
+  player.isSkipping = false
+  // 唤醒等待中的推进循环，让它退回到手动模式等待点击
+  if (player._resolveWait) {
+    const resolve = player._resolveWait
+    player._resolveWait = null
+    player.isWaitingInput = false
+    resolve('mode')
+  }
+}
 
 function onDialogComplete() { player.isPlaying = false }
 function onNarrationComplete() { player.isPlaying = false }
@@ -281,34 +349,72 @@ function handleTap() {
   }
 
   if (player._resolveWait) {
+    stopSpeaking()
     const resolve = player._resolveWait
     player._resolveWait = null
     player.isWaitingInput = false
-    resolve()
+    resolve('tap')
   }
 }
 
 function waitForUserInput() {
   return new Promise(resolve => {
     player.isWaitingInput = true
-    player._resolveWait = () => resolve()
+    player._resolveWait = (reason = 'tap') => resolve(reason)
   })
+}
+
+async function waitForAdvance() {
+  while (true) {
+    if (player.isSkipping) {
+      await sleep(200)
+      if (player.isSkipping) return
+      continue
+    }
+
+    if (player.isAutoPlay) {
+      const timer = Promise.all([
+        sleep(player.autoPlayDelay || 2000),
+        currentSpeakPromise
+      ]).then(() => 'timer')
+      const reason = await Promise.race([timer, waitForUserInput()])
+      if (reason === 'timer') {
+        player._resolveWait = null
+        player.isWaitingInput = false
+        if (player.isAutoPlay) return
+        continue
+      }
+      if (reason === 'mode') continue
+      return
+    }
+
+    const reason = await waitForUserInput()
+    if (reason === 'mode') continue
+    return
+  }
 }
 
 async function start() {
   const res = await startStory()
-  if (!res.success) return
+  if (!res.success) {
+    showToast(res.error || '剧情生成失败', 3200)
+    return
+  }
   await playInstructions(res.instructions || [])
   scheduleSave()
 }
 
 async function restartStory() {
   showMenu.value = false
+  cancelActivePlayback('restart')
   stopSpeaking()
   bgm.stop()
   vnStore.resetPlayer()
   const res = await startStory()
-  if (!res.success) return
+  if (!res.success) {
+    showToast(res.error || '剧情生成失败', 3200)
+    return
+  }
   await playInstructions(res.instructions || [])
   scheduleSave()
 }
@@ -317,32 +423,130 @@ async function sendUserInput() {
   if (player.isGenerating) return
   const text = userInput.value.trim()
   userInput.value = ''
-  const res = await sendInput(text || '继续')
-  if (!res.success) return
+  const res = await sendInput(text || '继续推进一个完整的小场景，在产生明确剧情进展后再给出新的玩家选项。')
+  if (!res.success) {
+    showToast(res.error || '剧情生成失败', 3200)
+    return
+  }
   await playInstructions(res.instructions || [])
   scheduleSave()
 }
 
 async function onChoiceSelect(opt) {
-  if (!opt) return
+  await submitChoice(opt?.text)
+}
+
+async function onCustomChoice(text) {
+  await submitChoice(text)
+}
+
+async function submitChoice(value) {
+  const text = String(value || '').trim()
+  if (!text || player.isGenerating) return
+  const previousChoices = player.currentChoices
   player.currentChoices = null
-  const res = await sendChoice(opt.text)
-  if (!res.success) return
+  const res = await sendChoice(text)
+  if (!res.success) {
+    player.currentChoices = previousChoices
+    showToast(res.error || '剧情生成失败', 3200)
+    return
+  }
+  await playInstructions(res.instructions || [])
+  scheduleSave()
+}
+
+function cancelActivePlayback(reason = 'cancel') {
+  playbackRunId += 1
+  if (player._resolveWait) {
+    const resolve = player._resolveWait
+    player._resolveWait = null
+    player.isWaitingInput = false
+    resolve(reason)
+  }
+}
+
+async function resumeLoadedGame(resumeState = {}) {
+  showSave.value = false
+  const resumeRunId = playbackRunId
+  const pendingInstructions = Array.isArray(resumeState.pendingInstructions)
+    ? resumeState.pendingInstructions
+    : []
+
+  if (player.currentChoices) {
+    scheduleSave()
+    return
+  }
+
+  if (resumeState.waitForAdvance && player.currentDialog) {
+    player.isPlaying = false
+    await waitForAdvance()
+    if (resumeRunId !== playbackRunId) return
+    if (resumeState.pendingCurrentInstruction) {
+      vnStore.addToHistory(resumeState.pendingCurrentInstruction)
+      scheduleSave()
+    }
+  }
+
+  if (pendingInstructions.length > 0) {
+    const pendingRunId = playbackRunId + 1
+    await playInstructions(pendingInstructions)
+    if (playbackRunId !== pendingRunId) return
+    if (player.currentChoices) {
+      scheduleSave()
+      return
+    }
+  }
+
+  if (resumeRunId !== playbackRunId && pendingInstructions.length === 0) return
+  await generateAfterLoadedSave()
+}
+
+async function generateAfterLoadedSave() {
+  const res = await sendInput('请从刚才的存档点自然继续剧情。使用 [dialog:角色名]台词和少量 [narration]，推进一个完整小场景，并以 3-4 个 [choices] 结束。')
+  if (!res.success) {
+    showToast(res.error || '读档后的剧情续写失败', 3200)
+    return
+  }
   await playInstructions(res.instructions || [])
   scheduleSave()
 }
 
 async function playInstructions(instructions) {
+  const runId = ++playbackRunId
   player.instructionQueue = instructions
   player.instructionIndex = 0
 
+  let inCondBlock = false
+  let condSkipped = false
+
   for (let i = 0; i < instructions.length; i++) {
+    if (runId !== playbackRunId) return
     player.instructionIndex = i
     const inst = instructions[i]
+
+    // --- Conditional branch (single level, no nesting) ---
+    if (inst.type === 'if') {
+      inCondBlock = true
+      condSkipped = !evalCondition(inst.expr)
+      continue
+    }
+    if (inst.type === 'else') {
+      if (inCondBlock) condSkipped = !condSkipped
+      continue
+    }
+    if (inst.type === 'endif') {
+      inCondBlock = false
+      condSkipped = false
+      continue
+    }
+    if (inCondBlock && condSkipped) continue
 
     switch (inst.type) {
       case 'bg':
         await handleBgInstruction(inst)
+        break
+      case 'scene':
+        handleSceneInstruction(inst)
         break
       case 'sprite':
         await handleSpriteInstruction(inst)
@@ -354,14 +558,20 @@ async function playInstructions(instructions) {
         handleBgmInstruction(inst)
         break
       case 'dialog':
+        await ensureDialogSprite(inst)
         await handleDialogInstruction(inst)
-        await waitForUserInput()
+        await waitForAdvance()
         break
       case 'narration':
         await handleNarrationInstruction(inst)
-        await waitForUserInput()
+        await waitForAdvance()
         break
       case 'choices':
+        if (player.isAutoPlay || player.isSkipping) {
+          player.isAutoPlay = false
+          player.isSkipping = false
+          showToast('遇到选项，自动播放已暂停', 2000)
+        }
         player.currentChoices = inst.options || []
         vnStore.addToHistory(inst)
         scheduleSave()
@@ -370,22 +580,44 @@ async function playInstructions(instructions) {
         break
     }
 
+    if (runId !== playbackRunId) return
+
     vnStore.addToHistory(inst)
     scheduleSave()
-
-    if (player.isAutoPlay && (inst.type === 'dialog' || inst.type === 'narration')) {
-      await sleep(player.autoPlayDelay || 2000)
-      if (player._resolveWait) {
-        const resolve = player._resolveWait
-        player._resolveWait = null
-        player.isWaitingInput = false
-        resolve()
-      }
-    }
   }
 
-  player.instructionQueue = []
-  player.instructionIndex = 0
+  if (runId === playbackRunId) {
+    player.instructionQueue = []
+    player.instructionIndex = 0
+  }
+}
+
+function evalCondition(expr) {
+  const s = String(expr || '').trim()
+  if (!s) return false
+
+  const m = s.match(/^(.+?)(>=|<=|==|!=|>|<)(.+)$/)
+  if (!m) {
+    const v = vnStore.getVariable(s, null)
+    return !!v && v !== 0 && v !== '0' && v !== 'false'
+  }
+
+  const lhs = vnStore.getVariable(m[1].trim(), 0)
+  const op = m[2]
+  const rhsRaw = m[3].trim()
+  const lhsNum = Number(lhs)
+  const rhsNum = Number(rhsRaw)
+  const numeric = rhsRaw !== '' && Number.isFinite(lhsNum) && Number.isFinite(rhsNum)
+
+  switch (op) {
+    case '>=': return numeric && lhsNum >= rhsNum
+    case '<=': return numeric && lhsNum <= rhsNum
+    case '>': return numeric && lhsNum > rhsNum
+    case '<': return numeric && lhsNum < rhsNum
+    case '==': return numeric ? lhsNum === rhsNum : String(lhs ?? '') === rhsRaw
+    case '!=': return numeric ? lhsNum !== rhsNum : String(lhs ?? '') !== rhsRaw
+    default: return false
+  }
 }
 
 async function handleBgInstruction(inst) {
@@ -407,6 +639,15 @@ async function handleBgInstruction(inst) {
   } else {
     player.currentBg = { name: inst.name, url: null }
   }
+  player.currentScene = { location: inst.name || '', time: '' }
+}
+
+function handleSceneInstruction(inst) {
+  const current = player.currentScene || { location: '', time: '' }
+  player.currentScene = {
+    location: String(inst.location || current.location || '').trim(),
+    time: String(inst.time || current.time || '').trim()
+  }
 }
 
 async function handleSpriteInstruction(inst) {
@@ -425,18 +666,27 @@ async function handleSpriteInstruction(inst) {
   let sprite = vnStore.getResource('sprites', resourceKey)
 
   if (!sprite && inst.isNew && inst.prompt) {
-    const char = vnStore.currentProject?.characters?.find(c => c.contactId === inst.characterId)
+    const char = vnStore.currentProject?.characters?.find(
+      c => c.contactId === inst.characterId || c.vnName === inst.vnName
+    )
     if (char) {
       player.isGeneratingImage = true
       try {
         const url = await generateSprite(char, inst.expression)
-        sprite = { url }
+        sprite = vnStore.getResource('sprites', resourceKey) || { url, autoCutout: true }
       } catch {
         sprite = { url: null }
       } finally {
         player.isGeneratingImage = false
       }
     }
+  }
+
+  if (sprite?.url && !sprite.autoCutout) {
+    const url = await processSpriteCutout(sprite.url)
+    sprite = { ...sprite, url, autoCutout: true }
+    vnStore.setResource('sprites', resourceKey, sprite)
+    scheduleSave()
   }
 
   const spriteUrl = sprite?.url || null
@@ -453,6 +703,32 @@ async function handleSpriteInstruction(inst) {
 
   if (existing !== -1) player.sprites[existing] = spriteData
   else player.sprites.push(spriteData)
+}
+
+async function ensureDialogSprite(inst) {
+  const char = vnStore.currentProject?.characters?.find(
+    c => c.contactId === inst.characterId || c.vnName === inst.vnName
+  )
+  if (!char) return
+
+  const characterId = char.contactId || inst.characterId
+  if (player.sprites.some(sprite => sprite.characterId === characterId && !sprite.isExiting)) return
+
+  const occupied = new Set(player.sprites.map(sprite => sprite.position))
+  const position = player.sprites.length === 0
+    ? 'center'
+    : (!occupied.has('right') ? 'right' : (!occupied.has('left') ? 'left' : 'center'))
+
+  await handleSpriteInstruction({
+    type: 'sprite',
+    characterId,
+    vnName: char.vnName || inst.vnName,
+    position,
+    expression: 'normal',
+    isNew: false,
+    prompt: null,
+    animation: 'fadeIn'
+  })
 }
 
 function handleVariableInstruction(inst) {
@@ -475,9 +751,11 @@ function handleBgmInstruction(inst) {
 }
 
 async function handleDialogInstruction(inst) {
-  const char = vnStore.currentProject?.characters?.find(c => c.contactId === inst.characterId)
+  const char = vnStore.currentProject?.characters?.find(
+    c => c.contactId === inst.characterId || c.vnName === inst.vnName
+  )
 
-  player.isPlaying = true
+  player.isPlaying = !player.isSkipping
   player.currentDialog = {
     characterId: inst.characterId,
     vnName: inst.vnName,
@@ -486,11 +764,13 @@ async function handleDialogInstruction(inst) {
     isNarration: false
   }
 
-  speak(inst.text, inst.characterId).catch(() => {})
+  currentSpeakPromise = player.isSkipping
+    ? null
+    : speak(inst.text, inst.characterId).catch(() => {})
 }
 
 async function handleNarrationInstruction(inst) {
-  player.isPlaying = true
+  player.isPlaying = !player.isSkipping
   player.currentDialog = {
     characterId: '',
     vnName: '',
@@ -499,7 +779,9 @@ async function handleNarrationInstruction(inst) {
     isNarration: true
   }
 
-  speak(inst.text, { isNarration: true }).catch(() => {})
+  currentSpeakPromise = player.isSkipping
+    ? null
+    : speak(inst.text, { isNarration: true }).catch(() => {})
 }
 
 function sleep(ms) {
@@ -598,6 +880,94 @@ function sleep(ms) {
   0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 8px rgba(99, 102, 241, 0.6); }
   50% { opacity: 0.45; transform: scale(0.75); box-shadow: 0 0 4px rgba(99, 102, 241, 0.3); }
 }
+
+/* ===== Mode Pill (AUTO / SKIP) ===== */
+.vn-mode-pill {
+  position: absolute;
+  top: calc(var(--app-pt, 12px) + 46px);
+  left: 14px;
+  z-index: 49;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.2);
+  transition: transform 0.18s ease;
+}
+
+.vn-mode-pill:active { transform: scale(0.92); }
+
+.vn-mode-pill.auto {
+  background: rgba(99, 102, 241, 0.55);
+  border-color: rgba(129, 140, 248, 0.5);
+}
+
+.vn-mode-pill.skip {
+  background: rgba(234, 88, 12, 0.55);
+  border-color: rgba(251, 146, 60, 0.5);
+}
+
+.vn-mode-pill i {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.vn-mode-enter-active { transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+.vn-mode-leave-active { transition: all 0.2s ease-in; }
+.vn-mode-enter-from,
+.vn-mode-leave-to { opacity: 0; transform: scale(0.85) translateY(-6px); }
+
+/* ===== Generating Pill ===== */
+.vn-gen-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 190px;
+  transform: translateX(-50%);
+  z-index: 48;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border-radius: 22px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+.vn-gen-pill i {
+  font-size: 15px;
+  color: #a5b4fc;
+}
+
+.vn-gen-spin {
+  animation: vnGenSpin 1s linear infinite;
+}
+
+@keyframes vnGenSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.vn-gen-enter-active { transition: all 0.3s ease; }
+.vn-gen-leave-active { transition: all 0.25s ease; }
+.vn-gen-enter-from,
+.vn-gen-leave-to { opacity: 0; transform: translateX(-50%) translateY(8px); }
 
 /* ===== Input Bar ===== */
 .vn-input-area {

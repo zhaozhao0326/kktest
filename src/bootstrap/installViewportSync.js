@@ -15,6 +15,7 @@ export function installViewportSync() {
   let tailSyncTimer = 0
   let lastAppVh = -1
   let lastAppVw = -1
+  let lastViewportOffsetTop = -1
   let lastKbInset = -1
   let lastKeyboardOpen = null
   let lastIosStandalone = null
@@ -86,6 +87,7 @@ export function installViewportSync() {
 
     const roundedAppVh = Math.round(appVh)
     const roundedAppVw = Math.round(appVw)
+    const roundedViewportOffsetTop = Math.round(viewportOffsetTop)
     const roundedKbInset = Math.round(keyboardInset)
 
     if (roundedAppVh !== lastAppVh) {
@@ -95,6 +97,10 @@ export function installViewportSync() {
     if (roundedAppVw !== lastAppVw) {
       lastAppVw = roundedAppVw
       root.style.setProperty('--app-vw', `${roundedAppVw}px`)
+    }
+    if (roundedViewportOffsetTop !== lastViewportOffsetTop) {
+      lastViewportOffsetTop = roundedViewportOffsetTop
+      root.style.setProperty('--app-vv-top', `${roundedViewportOffsetTop}px`)
     }
     if (roundedKbInset !== lastKbInset) {
       lastKbInset = roundedKbInset

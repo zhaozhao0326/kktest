@@ -2,12 +2,12 @@ import { useAccessControlStore } from '../stores/accessControl'
 import { consumeAccessErrorFromUrl, mapAccessErrorCode } from '../utils/accessControl'
 import { buildAccessDevicePayload } from '../utils/accessDeviceClient'
 
-const ACCESS_SESSION_ENDPOINT = '/api/access-session'
-const ACCESS_START_ENDPOINT = '/api/access-discord-start'
-const ACCESS_ADMIN_LOGIN_ENDPOINT = '/api/access-admin-login'
-const ACCESS_ADMIN_STATS_ENDPOINT = '/api/access-admin-stats'
-const ACCESS_DEVICE_CLAIM_ENDPOINT = '/api/access-device-claim'
-const ACCESS_LOGOUT_ENDPOINT = '/api/access-logout'
+const ACCESS_SESSION_ENDPOINT = '/api/access?action=session'
+const ACCESS_START_ENDPOINT = '/api/access?action=discord-start'
+const ACCESS_ADMIN_LOGIN_ENDPOINT = '/api/access?action=admin-login'
+const ACCESS_ADMIN_STATS_ENDPOINT = '/api/access?action=admin-stats'
+const ACCESS_DEVICE_CLAIM_ENDPOINT = '/api/access?action=device'
+const ACCESS_LOGOUT_ENDPOINT = '/api/access?action=logout'
 
 function getCurrentReturnTo() {
   if (typeof window === 'undefined') return '#/'
@@ -161,12 +161,12 @@ export function useAccessControl() {
   function beginDiscordLogin(options = {}) {
     if (typeof window === 'undefined') return
 
-    const params = new URLSearchParams()
-    params.set('returnTo', options.returnTo || getCurrentReturnTo())
+    const url = new URL(ACCESS_START_ENDPOINT, window.location.origin)
+    url.searchParams.set('returnTo', options.returnTo || getCurrentReturnTo())
     if (options.force) {
-      params.set('force', '1')
+      url.searchParams.set('force', '1')
     }
-    window.location.assign(`${ACCESS_START_ENDPOINT}?${params.toString()}`)
+    window.location.assign(url.toString())
   }
 
   async function submitAdminCode(code = '') {

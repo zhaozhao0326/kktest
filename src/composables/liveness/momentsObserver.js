@@ -23,28 +23,52 @@ export function createMomentsSource({ emit, store, livenessStore, momentsStore }
         const latest = momentsStore.sortedMoments?.[0] || momentsStore.moments?.[0]
         if (!latest) return
 
-        // 只关注用户自己发的动态（非 AI 角色发的）
         const isUserPost = !store.contacts?.some(c => c.id === latest.authorId)
-        if (!isUserPost) return
-
-        const content = (latest.content || '').slice(0, 200)
+        const content = (latest.content || latest.voiceText || '').slice(0, 200)
         const mood = latest.mood || null
 
-        // 通知所有联系人（让每个角色独立决定是否回应）
-        const contacts = store.contacts || []
-        for (const contact of contacts) {
-          if (contact.type === 'group') continue
-          const s = livenessStore.getState(contact.id)
+        const buildContext = (contactId) => {
+          const s = livenessStore.getState(contactId)
+          return {
+            postContent: content,
+            postMood: mood,
+            affection: s.affection,
+            authorName: latest.authorName || '用户',
+            authorId: latest.authorId || null,
+            momentId: latest.id || null
+          }
+        }
 
+        if (isUserPost) {
+          // 用户发动态：通知所有联系人（让每个角色独立决定是否回应）
+          const contacts = store.contacts || []
+          for (const contact of contacts) {
+            if (contact.type === 'group') continue
+            emit({
+              type: EventType.MOMENT_POST,
+              contactId: contact.id,
+              context: buildContext(contact.id)
+            })
+          }
+          return
+        }
+
+        // AI 角色发动态：通知与作者同熟人分组的其他角色（随机采样最多2个，控制 API 消耗）
+        const peers = (store.contacts || []).filter(c =>
+          c.type !== 'group' &&
+          c.id !== latest.authorId &&
+          momentsStore.areContactsAcquainted?.(c.id, latest.authorId)
+        )
+        const sampled = peers
+          .map(c => ({ c, r: Math.random() }))
+          .sort((a, b) => a.r - b.r)
+          .slice(0, 2)
+          .map(x => x.c)
+        for (const contact of sampled) {
           emit({
             type: EventType.MOMENT_POST,
             contactId: contact.id,
-            context: {
-              postContent: content,
-              postMood: mood,
-              affection: s.affection,
-              authorName: latest.authorName || '用户'
-            }
+            context: buildContext(contact.id)
           })
         }
       }

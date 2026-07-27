@@ -53,11 +53,14 @@
 import { computed, ref } from 'vue'
 import { useVNStore } from '../../../stores/vn'
 import { useStorage } from '../../../composables/useStorage'
+import { useToast } from '../../../composables/useToast'
+import { showConfirm } from '../../../composables/useConfirm'
 import { formatBeijingLocale } from '../../../utils/beijingTime'
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'before-load', 'loaded'])
 const vnStore = useVNStore()
 const { scheduleSave } = useStorage()
+const { showToast } = useToast()
 const slotName = ref('')
 
 const saves = computed(() => {
@@ -69,17 +72,32 @@ function saveNow() {
   vnStore.saveGame(slotName.value)
   slotName.value = ''
   scheduleSave()
+  showToast('已保存')
 }
 
 function loadNow(saveId) {
-  vnStore.loadGame(saveId)
+  emit('before-load')
+  const resumeState = vnStore.loadGame(saveId)
+  if (!resumeState) {
+    showToast('读档失败')
+    return
+  }
   scheduleSave()
+  showToast('读档成功')
+  emit('loaded', resumeState)
   emit('close')
 }
 
-function deleteSave(saveId) {
+async function deleteSave(saveId) {
   const p = vnStore.currentProject
   if (!p || !Array.isArray(p.saves)) return
+  const ok = await showConfirm({
+    title: '删除存档',
+    message: '删除后无法恢复，确定删除这条存档？',
+    confirmText: '删除',
+    destructive: true
+  })
+  if (!ok) return
   const idx = p.saves.findIndex(x => x.id === saveId)
   if (idx !== -1) p.saves.splice(idx, 1)
   scheduleSave()

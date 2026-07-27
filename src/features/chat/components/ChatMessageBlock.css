@@ -1,0 +1,15 @@
+.offline-card-delete-btn {
+  border: 1px solid var(--border-color, #d8d8d8);
+  border-radius: 8px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary, #8e8e93);
+  background: transparent;
+}
+
+.offline-card-delete-btn:active {
+  opacity: 0.7;
+}

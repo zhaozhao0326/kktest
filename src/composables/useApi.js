@@ -31,7 +31,7 @@ import { useToast } from './useToast'
 import { getContextWindowedMsgs } from './api/contextWindowing'
 import { createApiError, createApiFailureResult, trimText } from './api/errors'
 import { stripImageTokensForDisplay } from './api/imageTokens'
-import { fetchOpenAICompat, readOpenAICompatError } from './api/openaiCompat'
+import { fetchProviderModels } from './api/providerRequest'
 import { buildWeatherSummaryLine } from './useWeatherContext'
 import {
   shouldAddReplyFormatPrompt,
@@ -48,6 +48,7 @@ import { useSoundEffects } from './useSoundEffects'
 import { useMcpBridge } from './useMcpBridge'
 import { runDirectChatOrchestrator } from './api/chat/directChatOrchestrator'
 import { runGroupChatOrchestrator } from './api/chat/groupChatOrchestrator'
+import { addDebugLog } from './useDebugLog'
 
 export function useApi() {
   const contactsStore = useContactsStore()
@@ -151,8 +152,8 @@ export function useApi() {
     return stripImageTokensForDisplay(withoutPlannerBlocks, settingsStore.allowAIImageGeneration)
   }
 
-  function createStreamChunkBatcher(streamMsg, onChunk) {
-    return createStreamChunkBatcherRaw(streamMsg, onChunk, buildStreamingDisplayContent)
+  function createStreamChunkBatcher(streamMsg, onChunk, activeChat = null) {
+    return createStreamChunkBatcherRaw(streamMsg, onChunk, buildStreamingDisplayContent, { activeChat })
   }
 
 
@@ -222,28 +223,36 @@ export function useApi() {
         action: 'fetchModels'
       })
     }
-
     try {
-      const { response: res } = await fetchOpenAICompat(cfg.url, {
-        path: '/models',
-        method: 'GET',
-        apiKey: cfg.key,
-        contentType: false
-      })
-      if (!res.ok) throw new Error(await readOpenAICompatError(res))
-      const data = await res.json()
-      let models = []
-      if (data.data && Array.isArray(data.data)) {
-        models = data.data.map(m => m.id).filter(Boolean).sort()
-      }
+      const { request, models } = await fetchProviderModels(cfg)
       if (models.length === 0) {
         throw createApiError('MODEL_LIST_EMPTY', '未找到模型', {
           feature: 'chat',
           action: 'fetchModels'
         })
       }
+      addDebugLog({
+        level: 'info',
+        scope: 'api.models',
+        message: '模型列表获取成功',
+        details: {
+          baseUrl: cfg.url,
+          apiFormat: cfg.apiFormat || 'openai-compatible',
+          url: request?.targetUrl || '',
+          modelsCount: models.length
+        }
+      })
       return { success: true, models }
     } catch (e) {
+      addDebugLog({
+        level: 'error',
+        scope: 'api.models',
+        message: e?.message || '模型列表获取失败',
+        details: {
+          baseUrl: cfg.url,
+          error: e
+        }
+      })
       return createApiFailureResult(e, {
         context: {
           feature: 'chat',

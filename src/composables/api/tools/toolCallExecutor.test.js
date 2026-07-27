@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { executeToolCalls } from './toolCallExecutor'
 
 describe('toolCallExecutor', () => {
@@ -23,6 +23,11 @@ describe('toolCallExecutor', () => {
     })
 
     expect(result.messages).toHaveLength(1)
+    expect(result.messages[0]).toMatchObject({
+      role: 'tool',
+      tool_call_id: 'call_1',
+      name: 'create_event'
+    })
     expect(JSON.parse(result.messages[0].content)).toEqual({
       success: true,
       result: { eventId: 'evt_读书提醒' }
@@ -80,5 +85,67 @@ describe('toolCallExecutor', () => {
     expect(result.logs[0].displayName).toBe('create_page')
     expect(result.logs[0].subtitle).toContain('Notion')
     expect(result.logs[0].errorText).toBe('HTTP 401')
+  })
+
+  it('writes diary entries as user-view records and keeps assistant provenance', async () => {
+    const plannerStore = {
+      addDiaryEntry: vi.fn((payload) => ({ id: 'diary_1', ...payload }))
+    }
+
+    const result = await executeToolCalls([
+      {
+        id: 'call_3',
+        function: {
+          name: 'write_diary',
+          arguments: JSON.stringify({
+            content: '今天和朋友去吃了火锅，心情很好。',
+            mood: '开心'
+          })
+        }
+      }
+    ], {
+      plannerStore,
+      activeChat: { id: 'contact_1' }
+    })
+
+    expect(plannerStore.addDiaryEntry).toHaveBeenCalledWith(expect.objectContaining({
+      content: '今天和朋友去吃了火锅，心情很好。',
+      mood: '开心',
+      shareWithAI: true,
+      source: 'assistant',
+      sourceChatId: 'contact_1',
+      sourceContactId: 'contact_1'
+    }))
+    expect(JSON.parse(result.messages[0].content)).toEqual({
+      success: true,
+      result: { diaryId: 'diary_1' }
+    })
+  })
+
+  it('rejects diary entries that are clearly written from the assistant perspective', async () => {
+    const plannerStore = {
+      addDiaryEntry: vi.fn()
+    }
+
+    const result = await executeToolCalls([
+      {
+        id: 'call_4',
+        function: {
+          name: 'write_diary',
+          arguments: JSON.stringify({
+            content: '作为AI，我今天又陪用户聊了很久。'
+          })
+        }
+      }
+    ], {
+      plannerStore,
+      activeChat: { id: 'contact_1' }
+    })
+
+    expect(plannerStore.addDiaryEntry).not.toHaveBeenCalled()
+    expect(JSON.parse(result.messages[0].content)).toEqual({
+      success: false,
+      error: '日记必须以用户视角记录，不能使用AI或角色视角'
+    })
   })
 })

@@ -3,6 +3,9 @@ import {
   getGiftImageUrl,
   getGiftPrice
 } from '../../../../data/gifts'
+import { estimateVoiceDuration, generateWaveform } from '../../../../utils/voiceWaveform'
+
+export { estimateVoiceDuration, generateWaveform }
 
 export function formatStickerToken(name) {
   const n = String(name ?? '').trim()
@@ -94,27 +97,6 @@ export function formatMusicToken(title, artist, url = '', cover = '') {
   return a ? `(music:${t}:${a})` : `(music:${t})`
 }
 
-export function generateWaveform(text, barCount = 20) {
-  const str = String(text ?? '')
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash) + str.charCodeAt(i)
-    hash |= 0
-  }
-  const bars = []
-  for (let i = 0; i < barCount; i++) {
-    hash = ((hash << 5) - hash) + i * 31
-    hash |= 0
-    const h = 4 + Math.abs(hash % 15)
-    bars.push(h)
-  }
-  return bars
-}
-
-export function estimateVoiceDuration(text) {
-  const len = String(text ?? '').length
-  return Math.max(1, Math.round(len / 3))
-}
 
 const EMOTION_TAG_REGEX = /\[\s*emotion\s*[:：]\s*([a-zA-Z_]+)\s*\]/gi
 const VALID_EMOTIONS = new Set([

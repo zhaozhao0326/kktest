@@ -1,6 +1,7 @@
 // @ts-check
 
 import { imageUrlToBase64 } from '../../../../utils/imageData'
+import { normalizeImageGenProvider } from '../../../../composables/imageGen/providers'
 import { clampNumber, normalizeText } from './utils'
 
 const DEFAULT_GENERATION_QUEUE = Object.freeze({
@@ -175,13 +176,21 @@ function enqueueGeneration(task, config) {
 
 function resolveProviderReady(vnStore) {
   const cfg = vnStore.imageGenConfig || {}
-  const provider = String(cfg.provider || '').toLowerCase()
+  const provider = normalizeImageGenProvider(cfg.provider)
   if (provider === 'novelai') return !!cfg.novelai?.apiKey
   if (provider === 'nanobanana') {
     const nano = cfg.nanobanana || {}
     const keyMode = normalizeText(nano.apiKeyMode).toLowerCase()
     if (keyMode === 'none' || keyMode === 'noauth' || keyMode === 'no_auth') return true
+    if (normalizeText(nano.endpoint || nano.baseUrl || nano.url)) return true
     return !!normalizeText(nano.apiKey)
+  }
+  if (provider === 'openai_images') {
+    const openaiImages = cfg.openaiImages || {}
+    const keyMode = normalizeText(openaiImages.apiKeyMode).toLowerCase()
+    if (keyMode === 'none' || keyMode === 'noauth' || keyMode === 'no_auth') return true
+    if (normalizeText(openaiImages.endpoint || openaiImages.baseUrl || openaiImages.url)) return true
+    return !!normalizeText(openaiImages.apiKey)
   }
   if (provider === 'custom') return !!cfg.custom?.endpoint
   return false

@@ -177,4 +177,58 @@ describe('useMcpBridge', () => {
     expect(discovery.tools).toEqual([])
     expect(discovery.externalExecutors).toEqual(new Map())
   })
+
+  it('skips all MCP discovery when conversation MCP ids are explicitly empty', async () => {
+    const fetchMock = vi.fn()
+    globalThis.fetch = fetchMock
+
+    const { discoverMcpTools } = useMcpBridge({
+      settingsStore: createSettingsStore('https://bridge.example.com', {
+        mcpBridgeEnabled: true,
+        mcpServers: [
+          { id: 'bridge_docs', name: 'Docs', transport: 'http', url: 'https://bridge.example.com/docs', enabled: true }
+        ],
+        mcpDirectServers: [
+          { id: 'direct_docs', name: 'Docs', url: 'https://mcp.example.com/docs', apiKey: 'secret', enabled: true }
+        ]
+      })
+    })
+
+    const discovery = await discoverMcpTools({ force: true, serverIds: [] })
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(discovery.tools).toEqual([])
+    expect(discovery.externalExecutors).toEqual(new Map())
+  })
+
+  it('discovers only the selected bridge server tools when conversation MCP ids are set', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(createJsonResponse({ ok: true, servers: [] }))
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }))
+      .mockResolvedValueOnce(createJsonResponse({
+        ok: true,
+        tools: [
+          { serverId: 'bridge_docs', serverName: 'Docs', name: 'search', description: 'Search', inputSchema: { type: 'object', properties: {} } },
+          { serverId: 'bridge_other', serverName: 'Other', name: 'list', description: 'List', inputSchema: { type: 'object', properties: {} } }
+        ]
+      }))
+    globalThis.fetch = fetchMock
+
+    const { discoverMcpTools } = useMcpBridge({
+      settingsStore: createSettingsStore('https://bridge.example.com', {
+        mcpBridgeEnabled: true,
+        notionEnabled: false,
+        mcpServers: [
+          { id: 'bridge_docs', name: 'Docs', transport: 'http', url: 'https://bridge.example.com/docs', enabled: true },
+          { id: 'bridge_other', name: 'Other', transport: 'http', url: 'https://bridge.example.com/other', enabled: true }
+        ]
+      })
+    })
+
+    const discovery = await discoverMcpTools({ force: true, serverIds: ['bridge_docs'] })
+
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({ id: 'bridge_docs' })
+    expect(discovery.tools).toHaveLength(1)
+    expect(discovery.tools[0].name).toContain('docs_search')
+  })
 })

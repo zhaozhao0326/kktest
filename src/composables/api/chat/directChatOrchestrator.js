@@ -4,6 +4,7 @@ import { appendInstructionMessage } from '../streamingRequest'
 import { finalizeStreamingAssistantReply } from '../assistantMessageLifecycle'
 import { applyReadOnlySuppression, finalizeAssistantTurn } from './chatSideEffects'
 import { executeChatStreamOrchestrator } from './sharedChatExecutor'
+import { prepareChatTools } from './toolPreparation'
 import { resolveDirectMcpServerIds } from '../../../utils/mcpServers'
 
 export async function runDirectChatOrchestrator(context, onChunk) {
@@ -46,76 +47,36 @@ export async function runDirectChatOrchestrator(context, onChunk) {
   const activeChat = contactsStore.activeChat
   const cfg = activeChat ? resolveConfig(activeChat.configId) : resolveConfig()
   if (!cfg?.key) {
-    return buildApiFailure('CONFIG_MISSING', '请先配置 API Key', {
-      feature: 'chat',
-      action: 'callAPI'
-    })
+    return buildApiFailure('CONFIG_MISSING', '请先配置 API Key', { feature: 'chat', action: 'callAPI' })
   }
   if (!activeChat) {
-    return buildApiFailure('CHAT_NOT_FOUND', '没有活动的聊天', {
-      feature: 'chat',
-      action: 'callAPI'
-    })
+    return buildApiFailure('CHAT_NOT_FOUND', '没有活动的聊天', { feature: 'chat', action: 'callAPI' })
   }
 
+  const toolPreparationPromise = prepareChatTools({
+    contactsStore,
+    settingsStore,
+    activeChat,
+    selectedMcpServerIds: resolveDirectMcpServerIds(activeChat),
+    discoverMcpTools,
+    makeMsgId
+  })
+
+  let suppressDecisionPromise = null
   if (settingsStore.allowLivenessEngine && settingsStore.livenessConfig?.allowChatReadOnly) {
-    try {
-      const { shouldSuppressReply } = await import('../../useLivenessEngine')
-      const lastUserMsg = activeChat.msgs.slice().reverse().find(m => m.role === 'user')
-      const result = await shouldSuppressReply(activeChat.id, lastUserMsg?.content)
-      if (result.suppress) {
-        return await applyReadOnlySuppression({
-          activeChat,
-          chatStore,
-          settingsStore,
-          showToast,
-          reason: result.reason
-        })
-      }
-      if (result.error) {
-        console.warn('[LivenessEngine] Decision API error, proceeding with normal reply:', result.error)
-      }
-    } catch (error) {
-      console.warn('[LivenessEngine] shouldSuppressReply threw, proceeding normally:', error?.message || error)
-    }
+    const lastUserMsg = activeChat.msgs.slice().reverse().find(m => m.role === 'user')
+    suppressDecisionPromise = import('../../useLivenessEngine')
+      .then(({ shouldSuppressReply }) => shouldSuppressReply(activeChat.id, lastUserMsg?.content))
+      .catch(error => {
+        console.warn('[LivenessEngine] shouldSuppressReply threw, proceeding normally:', error?.message || error)
+        return { suppress: false }
+      })
   }
 
   const traceId = makeTraceId()
-
-  // Resolve tool calling if enabled
-  let tools = null
-  let toolContext = null
-  let externalExecutors = null
-  if (settingsStore.allowToolCalling) {
-    try {
-      const { getAvailableTools } = await import('../tools/toolRegistry')
-      const selectedMcpServerIds = resolveDirectMcpServerIds(activeChat)
-      const mcpDiscovery = typeof discoverMcpTools === 'function'
-        ? await discoverMcpTools({ serverIds: selectedMcpServerIds })
-        : { tools: [], externalExecutors: null }
-      externalExecutors = mcpDiscovery.externalExecutors || null
-      tools = getAvailableTools(settingsStore, activeChat, mcpDiscovery.tools || [])
-      if (tools.length > 0) {
-        const { useMomentsStore } = await import('../../../stores/moments')
-        const { useMusicStore } = await import('../../../stores/music')
-        const { usePlannerStore } = await import('../../../stores/planner')
-        const { useLivenessStore } = await import('../../../stores/liveness')
-        toolContext = {
-          contactsStore,
-          settingsStore,
-          momentsStore: useMomentsStore(),
-          musicStore: useMusicStore(),
-          plannerStore: usePlannerStore(),
-          livenessStore: useLivenessStore(),
-          activeChat,
-          makeMsgId
-        }
-      }
-    } catch (err) {
-      console.warn('[ToolCalling] Failed to resolve tools, proceeding without:', err?.message)
-      tools = null
-    }
-  }
+  const contextWindowPromise = Promise.resolve().then(() => getContextWindowedMsgs(activeChat))
+  contextWindowPromise.catch(() => {})
+  const { tools, toolContext, externalExecutors } = await toolPreparationPromise
 
   const { templateVars, mainSystemPrompt, postHistoryPrompt } = buildDirectRequestPlan({
     activeChat,
@@ -136,6 +97,16 @@ export async function runDirectChatOrchestrator(context, onChunk) {
     tools
   })
 
+  if (suppressDecisionPromise) {
+    const result = await suppressDecisionPromise
+    if (result.suppress) {
+      return await applyReadOnlySuppression({ activeChat, chatStore, settingsStore, showToast, reason: result.reason })
+    }
+    if (result.error) {
+      console.warn('[LivenessEngine] Decision API error, proceeding with normal reply:', result.error)
+    }
+  }
+
   return await executeChatStreamOrchestrator({
     chatStore,
     activeChat,
@@ -152,7 +123,7 @@ export async function runDirectChatOrchestrator(context, onChunk) {
       activeChat,
       mainSystemPrompt,
       templateVars,
-      loadContextWindowedMsgs: getContextWindowedMsgs,
+      loadContextWindowedMsgs: () => contextWindowPromise,
       resolveContextMessagesForApi,
       buildApiMessages: (resolvedContextMsgs) => buildDirectChatApiMessages(resolvedContextMsgs, activeChat.msgs),
       insertLorebookEntries,

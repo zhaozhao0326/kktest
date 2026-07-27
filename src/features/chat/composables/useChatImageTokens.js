@@ -5,6 +5,12 @@ import {
   normalizeCharacterRefMode,
   normalizeStrengths
 } from '../../../composables/imageGen/generationPrefs'
+import {
+  resolveImagePromptStyle,
+  usesNaturalLanguageImagePrompt
+} from '../../../composables/imageGen/promptProfiles'
+import { normalizeImageGenProvider } from '../../../composables/imageGen/providers'
+import { finalizeGeneratedImageUrl } from '../../../composables/imageGen/resultUrl'
 
 export function useChatImageTokens(options = {}) {
   const {
@@ -17,8 +23,109 @@ export function useChatImageTokens(options = {}) {
     scrollToBottom
   } = options
 
+  const DEFAULT_IMAGE_REQUEST_TIMEOUT_MS = 90_000
+  const MIN_IMAGE_REQUEST_TIMEOUT_MS = 10_000
+  const MAX_IMAGE_REQUEST_TIMEOUT_MS = 600_000
+
+  function normalizeImageRequestTimeoutMs(value, fallback = DEFAULT_IMAGE_REQUEST_TIMEOUT_MS) {
+    const n = Number(value)
+    if (!Number.isFinite(n) || n <= 0) return fallback
+    return Math.max(MIN_IMAGE_REQUEST_TIMEOUT_MS, Math.min(MAX_IMAGE_REQUEST_TIMEOUT_MS, Math.round(n)))
+  }
+
+  function getImageRequestTimeoutMs() {
+    return normalizeImageRequestTimeoutMs(store?.vnImageGenConfig?.imageRequestTimeoutMs)
+  }
+
   function getProvider() {
-    return String(store?.vnImageGenConfig?.provider || '').trim().toLowerCase()
+    return normalizeImageGenProvider(store?.vnImageGenConfig?.provider)
+  }
+
+  function getPromptStyle() {
+    return resolveImagePromptStyle(store?.vnImageGenConfig || {})
+  }
+
+  function normalizeImageGenerationType(value) {
+    return String(value || '').trim().toLowerCase() === 'scene' ? 'scene' : 'character'
+  }
+
+  function buildImageGenerationMetadata({ prompt, sceneTags, imageType, imageOptions }) {
+    return {
+      prompt: String(prompt || '').trim(),
+      sceneTags: String(sceneTags || '').trim(),
+      imageType: normalizeImageGenerationType(imageType),
+      provider: getProvider(),
+      options: sanitizeImagePromptOptions(imageOptions)
+    }
+  }
+
+  function applyImageGenerationMetadata(message, metadata) {
+    if (!message || !metadata) return
+    message.generatedByAIImage = true
+    message.imageSource = 'ai-generated'
+    message.skipForAIContext = true
+    message.imagePrompt = metadata.prompt
+    message.imageSceneTags = metadata.sceneTags
+    message.imageGenerationType = metadata.imageType
+    message.imagePromptProvider = metadata.provider
+    message.imagePromptOptions = metadata.options && Object.keys(metadata.options).length > 0
+      ? { ...metadata.options }
+      : undefined
+  }
+
+  function snapshotImageMessageState(message) {
+    if (!message || typeof message !== 'object') return null
+    return {
+      content: message.content,
+      isImage: message.isImage === true,
+      isImageRendering: message.isImageRendering === true,
+      imageUrl: message.imageUrl,
+      generatedByAIImage: message.generatedByAIImage,
+      imageSource: message.imageSource,
+      skipForAIContext: message.skipForAIContext,
+      imagePrompt: message.imagePrompt,
+      imageSceneTags: message.imageSceneTags,
+      imageGenerationType: message.imageGenerationType,
+      imagePromptProvider: message.imagePromptProvider,
+      imagePromptOptions: message.imagePromptOptions
+    }
+  }
+
+  function restoreImageMessageState(message, snapshot) {
+    if (!message || !snapshot) return
+    Object.assign(message, snapshot)
+  }
+
+  function hasImageRerollMetadata(message) {
+    if (!message || typeof message !== 'object') return false
+    const prompt = String(message.imagePrompt || '').trim()
+    const sceneTags = String(message.imageSceneTags || '').trim()
+    return !!(prompt || sceneTags)
+  }
+
+  function setImageMessageRenderingState(message, metadata, renderingText = '正在渲染图片…') {
+    if (!message) return
+    applyImageGenerationMetadata(message, metadata)
+    message.isImageRendering = true
+    message.isImage = false
+    message.content = renderingText
+  }
+
+  function setImageMessageSuccessState(message, metadata, imageUrl) {
+    if (!message) return
+    applyImageGenerationMetadata(message, metadata)
+    message.isImageRendering = false
+    message.isImage = true
+    message.content = '[图片]'
+    message.imageUrl = imageUrl
+  }
+
+  function setImageMessageFailureState(message, metadata, error, failurePrefix = '图片渲染失败') {
+    if (!message) return
+    applyImageGenerationMetadata(message, metadata)
+    message.isImageRendering = false
+    message.isImage = false
+    message.content = `🖼️ ${failurePrefix}：${String(error?.message || '未知错误')}`
   }
 
   function extractImageTokenTags(text) {
@@ -60,123 +167,6 @@ export function useChatImageTokens(options = {}) {
       result.push(tag)
     })
     return result
-  }
-
-  function base64ToBytes(base64) {
-    const normalized = String(base64 || '').replace(/\s+/g, '')
-    if (!normalized) return new Uint8Array(0)
-    try {
-      const binary = atob(normalized)
-      const bytes = new Uint8Array(binary.length)
-      for (let i = 0; i < binary.length; i += 1) {
-        bytes[i] = binary.charCodeAt(i)
-      }
-      return bytes
-    } catch {
-      return new Uint8Array(0)
-    }
-  }
-
-  function bytesToBase64(bytes) {
-    if (!(bytes instanceof Uint8Array) || bytes.length === 0) return ''
-    let binary = ''
-    const chunkSize = 0x8000
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      const chunk = bytes.subarray(i, i + chunkSize)
-      binary += String.fromCharCode(...chunk)
-    }
-    return btoa(binary)
-  }
-
-  function detectKnownImageMimeType(bytes) {
-    if (!(bytes instanceof Uint8Array) || bytes.length === 0) return ''
-    if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg'
-    if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png'
-    if (
-      bytes.length >= 12 &&
-      bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
-      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
-    ) return 'image/webp'
-    if (
-      bytes.length >= 6 &&
-      bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 &&
-      bytes[3] === 0x38 && (bytes[4] === 0x37 || bytes[4] === 0x39) && bytes[5] === 0x61
-    ) return 'image/gif'
-    return ''
-  }
-
-  async function blobToDataUrl(blob) {
-    if (!blob || typeof blob.arrayBuffer !== 'function') return ''
-    const bytes = new Uint8Array(await blob.arrayBuffer())
-    const mimeType = String(blob.type || '').trim() || detectKnownImageMimeType(bytes)
-    if (!mimeType) return ''
-    return `data:${mimeType};base64,${bytesToBase64(bytes)}`
-  }
-
-  async function normalizeGeneratedImageUrl(rawValue) {
-    if (typeof Blob !== 'undefined' && rawValue instanceof Blob) {
-      const dataUrl = await blobToDataUrl(rawValue)
-      if (!dataUrl) return ''
-      rawValue = dataUrl
-    }
-
-    const text = String(rawValue || '').trim()
-    if (!text) return ''
-    if (/^data:image\//i.test(text) || /^(?:blob:|https?:\/\/)/i.test(text)) return text
-
-    if (/^data:/i.test(text)) {
-      const match = text.match(/^data:[^;,]*;base64,([\s\S]+)$/i)
-      if (!match) return ''
-      const bytes = base64ToBytes(match[1])
-      const mimeType = detectKnownImageMimeType(bytes)
-      if (!mimeType) return ''
-      return `data:${mimeType};base64,${bytesToBase64(bytes)}`
-    }
-
-    if (/^[a-z0-9+/=\s]+$/i.test(text) && text.replace(/\s+/g, '').length >= 64) {
-      const bytes = base64ToBytes(text)
-      const mimeType = detectKnownImageMimeType(bytes)
-      if (!mimeType) return ''
-      return `data:${mimeType};base64,${bytesToBase64(bytes)}`
-    }
-
-    return ''
-  }
-
-  async function ensureImageUrlLoadable(imageUrl, timeoutMs = 15000) {
-    if (!imageUrl || typeof Image === 'undefined') return imageUrl
-    await new Promise((resolve, reject) => {
-      let settled = false
-      const img = new Image()
-      const timer = setTimeout(() => {
-        if (settled) return
-        settled = true
-        reject(new Error('图片加载超时'))
-      }, timeoutMs)
-
-      img.onload = () => {
-        if (settled) return
-        settled = true
-        clearTimeout(timer)
-        resolve()
-      }
-      img.onerror = () => {
-        if (settled) return
-        settled = true
-        clearTimeout(timer)
-        reject(new Error('图片加载失败'))
-      }
-      img.src = imageUrl
-    })
-    return imageUrl
-  }
-
-  async function finalizeGeneratedImageUrl(rawValue) {
-    const imageUrl = await normalizeGeneratedImageUrl(rawValue)
-    if (!imageUrl) {
-      throw new Error('图片结果无效：未返回可渲染的图片地址')
-    }
-    return await ensureImageUrlLoadable(imageUrl)
   }
 
   function clampUnitNumber(value, fallback = 1) {
@@ -247,13 +237,14 @@ export function useChatImageTokens(options = {}) {
 
   function buildImagePromptForMessage(msg, sceneTags, imageType) {
     const provider = getProvider()
+    const promptStyle = getPromptStyle()
     const isCharacter = imageType === 'character'
     const contactId = msg?.senderId || store?.activeChat?.id || ''
     const entry = contactId ? charResStore?.getEntry(contactId) : null
     const keepArtistTagsOnNonCharacterImage = !!entry?.generationPrefs?.keepArtistTagsOnNonCharacterImage
 
-    if (provider === 'nanobanana') {
-      // NanoBanana: natural language prompt
+    if (usesNaturalLanguageImagePrompt(promptStyle)) {
+      // Natural language image models.
       const sceneText = String(sceneTags || '').trim()
       if (!isCharacter) return sceneText || 'cinematic scene, atmospheric lighting, detailed composition'
       // Character image: prepend character description for context
@@ -286,15 +277,64 @@ export function useChatImageTokens(options = {}) {
     target[key] = value
   }
 
+  function sanitizeImagePromptOptions(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+    const allowed = [
+      'size',
+      'width',
+      'height',
+      'aspectRatio',
+      'quality',
+      'outputFormat',
+      'background'
+    ]
+    return allowed.reduce((acc, key) => {
+      const raw = value[key]
+      if (raw === undefined || raw === null || raw === '') return acc
+      acc[key] = String(raw).trim()
+      return acc
+    }, {})
+  }
+
   function normalizeGenDimension(value, fallback = null) {
     const n = Number(value)
     if (!Number.isFinite(n) || n <= 0) return fallback
     return Math.max(64, Math.min(4096, Math.round(n)))
   }
 
-  const CHAT_IMAGE_RENDER_TIMEOUT_MS = 90_000
+  function normalizeTokenSize(value) {
+    const text = String(value || '').trim().toLowerCase()
+    if (!text) return ''
+    const aliases = {
+      square: '1024x1024',
+      portrait: '1024x1536',
+      vertical: '1024x1536',
+      tall: '1024x1536',
+      landscape: '1536x1024',
+      horizontal: '1536x1024',
+      wide: '1536x1024'
+    }
+    return aliases[text] || text
+  }
 
-  function getImageGenOptionsForMessage(msg, imageType) {
+  function applyTokenImageOptions(target, rawOptions = {}) {
+    const imageOptions = sanitizeImagePromptOptions(rawOptions)
+    if (imageOptions.size) {
+      target.size = normalizeTokenSize(imageOptions.size)
+      target.openaiSize = target.size
+    }
+    const width = normalizeGenDimension(imageOptions.width)
+    const height = normalizeGenDimension(imageOptions.height)
+    if (width) target.width = width
+    if (height) target.height = height
+    assignOptionIfSet(target, 'aspectRatio', imageOptions.aspectRatio)
+    assignOptionIfSet(target, 'quality', imageOptions.quality)
+    assignOptionIfSet(target, 'outputFormat', imageOptions.outputFormat)
+    assignOptionIfSet(target, 'background', imageOptions.background)
+    return imageOptions
+  }
+
+  function getImageGenOptionsForMessage(msg, imageType, imageOptions = {}) {
     const contactId = msg?.senderId || store?.activeChat?.id || ''
     const entry = contactId ? charResStore?.getEntry(contactId) : null
     const provider = getProvider()
@@ -342,17 +382,19 @@ export function useChatImageTokens(options = {}) {
       if (isCharacter) {
         Object.assign(options, buildNovelAIReferenceOptionsForMessage(entry))
       }
-    } else if (provider === 'nanobanana' && isCharacter) {
+    } else if ((provider === 'nanobanana' || provider === 'openai_images') && isCharacter) {
       // Auto-attach base sprite as reference image for character consistency
       const baseUrl = entry?.baseImage?.url
       if (baseUrl) {
         const base64 = extractBase64FromDataUrl(baseUrl)
         if (base64) {
           options.baseImage = base64
-          options.strength = 0.55
+          options.strength = provider === 'openai_images' ? 0.45 : 0.55
         }
       }
     }
+
+    applyTokenImageOptions(options, imageOptions)
 
     const roleNegativePrompt = String(entry?.negativePrompt || '').trim()
     if (roleNegativePrompt) {
@@ -362,6 +404,63 @@ export function useChatImageTokens(options = {}) {
     return options
   }
 
+  function buildImageRequest(msg, { prompt, sceneTags, imageType, imageOptions }) {
+    const normalizedPrompt = String(prompt || '').trim()
+    const normalizedSceneTags = String(sceneTags || '').trim()
+    const normalizedType = normalizeImageGenerationType(imageType)
+    const normalizedOptions = sanitizeImagePromptOptions(imageOptions)
+    return {
+      prompt: normalizedPrompt,
+      metadata: buildImageGenerationMetadata({
+        prompt: normalizedPrompt,
+        sceneTags: normalizedSceneTags,
+        imageType: normalizedType,
+        imageOptions: normalizedOptions
+      }),
+      options: {
+        ...getImageGenOptionsForMessage(msg, normalizedType, normalizedOptions),
+        timeoutMs: getImageRequestTimeoutMs()
+      }
+    }
+  }
+
+  function buildImageRequestForTokenMessage(msg, rawTags) {
+    const { type: imageType, tags: sceneTags, options: imageOptions } = parseImageTokenPayload(rawTags)
+    return buildImageRequest(msg, {
+      prompt: buildImagePromptForMessage(msg, sceneTags, imageType),
+      sceneTags,
+      imageType,
+      imageOptions
+    })
+  }
+
+  function buildImageRequestForStoredMessage(msg) {
+    if (!hasImageRerollMetadata(msg)) return null
+    const sceneTags = String(msg?.imageSceneTags || '').trim()
+    const imageType = normalizeImageGenerationType(msg?.imageGenerationType)
+    const storedPrompt = String(msg?.imagePrompt || '').trim()
+    const storedProvider = String(msg?.imagePromptProvider || '').trim().toLowerCase()
+    const currentProvider = getProvider()
+
+    let prompt = ''
+    if (storedPrompt && storedProvider && currentProvider && storedProvider === currentProvider) {
+      prompt = storedPrompt
+    }
+    if (!prompt && sceneTags) {
+      prompt = buildImagePromptForMessage(msg, sceneTags, imageType)
+    }
+    if (!prompt && storedPrompt) {
+      prompt = storedPrompt
+    }
+
+    return buildImageRequest(msg, {
+      prompt,
+      sceneTags,
+      imageType,
+      imageOptions: msg?.imagePromptOptions || {}
+    })
+  }
+
   function extractBase64FromDataUrl(url) {
     const text = String(url || '').trim()
     if (!text) return ''
@@ -369,6 +468,98 @@ export function useChatImageTokens(options = {}) {
     const idx = text.indexOf(',')
     if (idx === -1) return ''
     return text.slice(idx + 1).replace(/\s+/g, '')
+  }
+
+  async function renderImageMessage(contact, message, request, options = {}) {
+    const {
+      renderingText = '正在渲染图片…',
+      failurePrefix = '图片渲染失败',
+      preserveOnFailure = false,
+      scrollOnStateChange = false
+    } = options
+
+    if (!message || !request?.prompt) {
+      return {
+        ok: false,
+        error: new Error('图片提示词为空，已跳过本次生图')
+      }
+    }
+
+    const snapshot = preserveOnFailure ? snapshotImageMessageState(message) : null
+    setImageMessageRenderingState(message, request.metadata, renderingText)
+
+    if (scrollOnStateChange) {
+      scrollToBottom?.()
+    }
+
+    try {
+      const imageUrl = await finalizeGeneratedImageUrl(await generateImage(request.prompt, request.options))
+      setImageMessageSuccessState(message, request.metadata, imageUrl)
+      albumStore?.addPhoto?.({
+        url: imageUrl,
+        contactId: contact?.id,
+        contactName: contact?.name,
+        contactAvatar: contact?.avatar || null,
+        source: 'ai',
+        prompt: request.prompt
+      })
+      return { ok: true, imageUrl }
+    } catch (error) {
+      console.error('[chat-image] render failed', {
+        contactId: contact?.id || null,
+        prompt: request.prompt,
+        error
+      })
+
+      if (snapshot?.isImage && snapshot.imageUrl) {
+        restoreImageMessageState(message, snapshot)
+      } else {
+        setImageMessageFailureState(message, request.metadata, error, failurePrefix)
+      }
+
+      return { ok: false, error }
+    } finally {
+      if (scrollOnStateChange) {
+        scrollToBottom?.()
+      }
+    }
+  }
+
+  async function rerollImageMessage(contact, messageId) {
+    if (!contact || !Array.isArray(contact.msgs) || !messageId) return false
+
+    const message = contact.msgs.find(msg => msg?.id === messageId)
+    if (!message || message.role !== 'assistant') return false
+
+    if (message.isImageRendering) {
+      showToast?.('这张图片还在渲染中')
+      return true
+    }
+
+    const request = buildImageRequestForStoredMessage(message)
+    if (!request?.prompt) return false
+
+    const hadVisibleImage = message.isImage === true && !!String(message.imageUrl || '').trim()
+    const result = await renderImageMessage(contact, message, request, {
+      renderingText: hadVisibleImage ? '正在重roll图片…' : '正在重试生图…',
+      failurePrefix: hadVisibleImage ? '图片重roll失败' : '图片重试失败',
+      preserveOnFailure: hadVisibleImage,
+      scrollOnStateChange: false
+    })
+
+    if (!result.ok) {
+      if (hadVisibleImage) {
+        showToast?.(
+          `图片重roll失败：${String(result.error?.message || '未知错误')}，已保留原图`
+        )
+      } else {
+        showToast?.(
+          result.error?.message ? ('图片重试失败：' + result.error.message) : '图片重试失败'
+        )
+      }
+    }
+
+    return true
   }
 
   async function processAssistantImageTokens(contact, previousMsgIds) {
@@ -404,9 +595,8 @@ export function useChatImageTokens(options = {}) {
       let firstError = null
 
       for (const rawTags of tagsList) {
-        const { type: imageType, tags: sceneTags } = parseImageTokenPayload(rawTags)
-        const prompt = buildImagePromptForMessage(msg, sceneTags, imageType)
-        if (!prompt) {
+        const request = buildImageRequestForTokenMessage(msg, rawTags)
+        if (!request?.prompt) {
           failCount += 1
           if (!firstError) firstError = new Error('图片提示词为空，已跳过本次生图')
           continue
@@ -427,33 +617,17 @@ export function useChatImageTokens(options = {}) {
         // Use the reactive array item for subsequent updates; mutating the raw object
         // may skip Vue change notification in some cases.
         const renderingMsgRef = contact.msgs[contact.msgs.length - 1] || renderingMsg
-        scrollToBottom?.()
+        const result = await renderImageMessage(contact, renderingMsgRef, request, {
+          renderingText: '正在渲染图片…',
+          failurePrefix: '图片渲染失败',
+          scrollOnStateChange: true
+        })
 
-        try {
-          const imageUrl = await finalizeGeneratedImageUrl(await generateImage(prompt, {
-            ...getImageGenOptionsForMessage(msg, imageType),
-            timeoutMs: CHAT_IMAGE_RENDER_TIMEOUT_MS
-          }))
-          renderingMsgRef.isImageRendering = false
-          renderingMsgRef.content = '[图片]'
-          renderingMsgRef.isImage = true
-          renderingMsgRef.imageUrl = imageUrl
-          renderingMsgRef.generatedByAIImage = true
-          renderingMsgRef.imageSource = 'ai-generated'
-          albumStore?.addPhoto?.({ url: imageUrl, contactId: contact.id, contactName: contact.name, contactAvatar: contact.avatar || null, source: 'ai', prompt })
+        if (result.ok) {
           successCount += 1
-        } catch (e) {
-          if (!firstError) firstError = e
-          console.error('[chat-image] render failed', {
-            contactId: contact?.id || null,
-            prompt,
-            error: e
-          })
-          renderingMsgRef.isImageRendering = false
-          renderingMsgRef.content = `🖼️ 图片渲染失败：${String(e?.message || '未知错误')}`
+        } else {
+          if (!firstError) firstError = result.error
           failCount += 1
-        } finally {
-          scrollToBottom?.()
         }
       }
 
@@ -472,5 +646,8 @@ export function useChatImageTokens(options = {}) {
     }
   }
 
-  return { processAssistantImageTokens }
+  return {
+    processAssistantImageTokens,
+    rerollImageMessage
+  }
 }

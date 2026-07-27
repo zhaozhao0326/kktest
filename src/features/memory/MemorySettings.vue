@@ -21,7 +21,7 @@
           <div class="px-4 py-3 flex items-center justify-between">
             <div>
               <div class="text-[15px] text-[var(--text-primary)]">启用记忆系统</div>
-              <div class="text-[12px] text-[var(--text-secondary)] mt-0.5">将记忆注入到对话上下文</div>
+              <div class="text-[12px] text-[var(--text-secondary)] mt-0.5">将长期记忆按相关性注入到对话上下文</div>
             </div>
             <button
               class="w-[51px] h-[31px] rounded-full transition-colors relative"
@@ -212,7 +212,7 @@
           <div class="px-4 py-3 flex items-center justify-between border-b border-[var(--border-color)]">
             <div class="flex-1 min-w-0 pr-3">
               <div class="text-[15px] text-[var(--text-primary)]">AI 自动写入记忆</div>
-              <div class="text-[12px] text-[var(--text-secondary)] mt-0.5">从对话中提取长期有用信息，先写入“待整理”（默认不注入，需你确认）（会额外调用一次 API）</div>
+              <div class="text-[12px] text-[var(--text-secondary)] mt-0.5">从对话中提取长期有用信息；高置信可直接启用，低置信候选会自动过期（会额外调用一次 API）</div>
             </div>
             <button
               class="w-[51px] h-[31px] rounded-full transition-colors relative shrink-0"
@@ -608,7 +608,7 @@
           <div class="px-4 py-3 flex items-center justify-between border-t border-[var(--border-color)]">
             <div>
               <div class="text-[15px] text-[var(--text-primary)]">记忆注入上限</div>
-              <div class="text-[12px] text-[var(--text-secondary)] mt-0.5">限制注入到对话上下文的记忆长度</div>
+              <div class="text-[12px] text-[var(--text-secondary)] mt-0.5">限制可被选入上下文的记忆长度，系统会先按相关性选择</div>
             </div>
             <div class="flex items-center gap-1.5">
               <input

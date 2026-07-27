@@ -4,7 +4,7 @@
       <div class="meet-panel-header">
         <h2 class="meet-panel-title">时光碎片</h2>
         <button class="meet-close-btn" @click.stop="emit('close')">
-          关闭
+          <i class="ph-bold ph-x"></i>
         </button>
       </div>
 
@@ -52,11 +52,14 @@
 import { computed, ref } from 'vue'
 import { useMeetStore } from '../../../stores/meet'
 import { useStorage } from '../../../composables/useStorage'
+import { useToast } from '../../../composables/useToast'
+import { showConfirm } from '../../../composables/useConfirm'
 import { formatBeijingLocale } from '../../../utils/beijingTime'
 
 const emit = defineEmits(['close'])
 const meetStore = useMeetStore()
 const { scheduleSave } = useStorage()
+const { showToast } = useToast()
 const slotName = ref('')
 
 const saves = computed(() => {
@@ -68,17 +71,26 @@ function saveNow() {
   meetStore.saveGame(slotName.value)
   slotName.value = ''
   scheduleSave()
+  showToast('已保存')
 }
 
 function loadNow(saveId) {
   meetStore.loadGame(saveId)
   scheduleSave()
+  showToast('读档成功')
   emit('close')
 }
 
-function deleteSave(saveId) {
+async function deleteSave(saveId) {
   const m = meetStore.currentMeeting
   if (!m || !Array.isArray(m.saves)) return
+  const ok = await showConfirm({
+    title: '删除存档',
+    message: '删除后无法恢复，确定删除这条存档？',
+    confirmText: '删除',
+    destructive: true
+  })
+  if (!ok) return
   const idx = m.saves.findIndex(x => x.id === saveId)
   if (idx !== -1) m.saves.splice(idx, 1)
   scheduleSave()
@@ -99,57 +111,63 @@ function formatTime(ts) {
   z-index: 60;
   display: flex;
   flex-direction: column;
-  background: rgba(20, 20, 20, 0.95);
+  background: rgba(8, 8, 20, 0.8);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
   font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
 }
 
 .meet-panel-header {
-  padding: var(--app-pt-lg, 52px) 24px 16px;
+  padding: var(--app-pt-lg, 52px) 24px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 2px solid #333;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .meet-panel-title {
-  font-size: 1.3rem;
+  font-size: 1.25rem;
   font-weight: 700;
   color: #fff;
   letter-spacing: 6px;
 }
 
 .meet-close-btn {
-  background: #000;
-  border: 2px solid #444;
-  color: #fff;
-  padding: 8px 14px;
-  font-size: 13px;
-  font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
-  letter-spacing: 3px;
-  font-weight: 700;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 15px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: transform 0.2s ease, background 0.2s ease;
 }
 
-.meet-close-btn:hover { background: #333; }
-.meet-close-btn:active { background: #444; }
+.meet-close-btn:active { transform: scale(0.88); background: rgba(255, 255, 255, 0.15); }
 
 .meet-save-actions-bar {
-  padding: 16px 24px;
+  padding: 16px 24px 4px;
 }
 
 .new-save-input {
   display: flex;
-  gap: 12px;
-  background: rgba(0, 0, 0, 0.5);
-  border: 2px solid #444;
-  padding: 6px 6px 6px 16px;
+  gap: 10px;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  padding: 6px 6px 6px 18px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .new-save-input input {
   flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
   outline: none;
@@ -160,14 +178,16 @@ function formatTime(ts) {
 }
 
 .new-save-input input::placeholder {
-  color: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.28);
 }
 
 .new-save-input button {
   padding: 0 18px;
   height: 38px;
-  background: #000;
-  border: 1px solid #555;
+  flex-shrink: 0;
+  border-radius: 19px;
+  background: linear-gradient(135deg, #f472b6, #db2777);
+  border: none;
   color: #fff;
   font-weight: 700;
   font-size: 13px;
@@ -177,12 +197,12 @@ function formatTime(ts) {
   align-items: center;
   gap: 6px;
   cursor: pointer;
-  transition: background 0.15s;
+  box-shadow: 0 4px 14px rgba(219, 39, 119, 0.3);
+  transition: transform 0.15s ease;
   white-space: nowrap;
 }
 
-.new-save-input button:hover { background: #333; }
-.new-save-input button:active { transform: scale(0.96); }
+.new-save-input button:active { transform: scale(0.94); }
 
 .meet-save-grid {
   flex: 1;
@@ -208,12 +228,16 @@ function formatTime(ts) {
 .meet-empty-state i { font-size: 48px; }
 
 .save-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 18px 20px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 16px 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .save-info {
@@ -233,7 +257,7 @@ function formatTime(ts) {
 
 .save-meta {
   font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.35);
   letter-spacing: 1px;
 }
 
@@ -246,27 +270,29 @@ function formatTime(ts) {
 .save-buttons button {
   width: 40px;
   height: 40px;
-  border: 1px solid #444;
-  background: #000;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s;
-  color: #fff;
+  transition: transform 0.2s ease, background 0.2s ease;
 }
 
 .btn-load {
-  border-color: #666;
-  font-size: 18px;
+  border: none;
+  background: linear-gradient(135deg, #f472b6, #db2777);
+  color: #fff;
+  font-size: 16px;
+  box-shadow: 0 4px 14px rgba(219, 39, 119, 0.3);
 }
 
 .btn-delete {
-  color: rgba(255, 255, 255, 0.4);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: rgba(239, 68, 68, 0.85);
   font-size: 16px;
 }
 
-.btn-load:hover, .btn-delete:hover { background: #333; }
 .btn-load:active, .btn-delete:active { transform: scale(0.9); }
 
 .panel-fade-enter-active { transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1); }

@@ -22,6 +22,7 @@
       <SettingsAppearance v-show="currentPage === 'appearance'" />
       <SettingsChat v-show="currentPage === 'chat'" />
       <SettingsAIFeatures v-show="currentPage === 'ai'" />
+      <SettingsToolsMcp v-show="currentPage === 'toolsMcp'" />
       <SettingsSound v-show="currentPage === 'sound'" />
       <SettingsVoice v-show="currentPage === 'voice'" />
       <SettingsLiveness v-show="currentPage === 'liveness'" />
@@ -45,6 +46,7 @@ import SettingsHub from './settings/SettingsHub.vue'
 import SettingsLiveness from './settings/SettingsLiveness.vue'
 import SettingsPlanner from './settings/SettingsPlanner.vue'
 import SettingsSound from './settings/SettingsSound.vue'
+import SettingsToolsMcp from './settings/SettingsToolsMcp.vue'
 import SettingsVoice from './settings/SettingsVoice.vue'
 import SettingsCloudSync from './settings/SettingsCloudSync.vue'
 
@@ -58,6 +60,7 @@ const pageTitle = computed(() => {
     appearance: '外观与显示',
     chat: '聊天',
     ai: 'AI 能力',
+    toolsMcp: '工具与 MCP',
     sound: '声音与提示音',
     voice: '语音与通话',
     liveness: '拟真互动',

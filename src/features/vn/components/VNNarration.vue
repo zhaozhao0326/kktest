@@ -1,6 +1,6 @@
 <template>
   <Transition name="vn-narration" appear>
-    <div v-if="text" class="vn-narration-overlay" @click.stop>
+    <div v-if="text" class="vn-narration-overlay" @click.stop="emit('advance')">
       <div class="vn-narration-box">
         <div class="vn-narration-ornament">
           <i class="ph ph-sparkle"></i>
@@ -27,7 +27,7 @@ const props = defineProps({
   isPlaying: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['complete'])
+const emit = defineEmits(['complete', 'advance'])
 
 const displayText = ref('')
 let timer = null

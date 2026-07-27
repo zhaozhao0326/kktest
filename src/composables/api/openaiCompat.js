@@ -1,10 +1,18 @@
+import {
+  assertValidHeaders,
+  mergeRequestHeaders,
+  normalizeAbsoluteHttpUrl,
+  prepareApiKey,
+  stripInvisibleFormatChars
+} from '../../utils/httpHeaders'
+
 const DEFAULT_ERROR_TEXT_LIMIT = 200
 const OPENAI_COMPAT_PROXY_BASES = Object.freeze([
   'https://api.mortis.edu.kg/v1'
 ])
 
 function normalizeOpenAICompatProxyUrl(value) {
-  const raw = String(value || '').trim()
+  const raw = stripInvisibleFormatChars(value).trim()
   if (!raw) return ''
 
   try {
@@ -51,7 +59,7 @@ export function isLocalBrowserHostname(hostname) {
 
 export function resolveOpenAICompatUrl(baseUrl, path = '/chat/completions') {
   const suffix = String(path || '').trim() || '/chat/completions'
-  const normalizedBase = String(baseUrl || '').trim().replace(/\/+$/, '')
+  const normalizedBase = stripInvisibleFormatChars(baseUrl).trim().replace(/\/+$/, '')
   if (!normalizedBase) return suffix
   if (normalizedBase.endsWith(suffix)) return normalizedBase
   return normalizedBase + suffix
@@ -59,16 +67,17 @@ export function resolveOpenAICompatUrl(baseUrl, path = '/chat/completions') {
 
 export function buildOpenAICompatHeaders(apiKey, options = {}) {
   const { contentType = true, extraHeaders = {} } = options
-  const headers = { ...extraHeaders }
+  let headers = {}
   if (contentType) {
-    headers['Content-Type'] = 'application/json'
+    headers = mergeRequestHeaders(headers, { 'Content-Type': 'application/json' })
   }
 
-  const token = String(apiKey || '').trim()
+  const token = prepareApiKey(apiKey)
   if (token) {
-    headers.Authorization = `Bearer ${token}`
+    headers = mergeRequestHeaders(headers, { Authorization: `Bearer ${token}` })
   }
-  return headers
+  headers = mergeRequestHeaders(headers, extraHeaders)
+  return assertValidHeaders(headers)
 }
 
 export function shouldUseOpenAICompatProxy(targetUrl, locationLike = null) {
@@ -99,19 +108,22 @@ export function resolveOpenAICompatRequest(baseUrl, options = {}) {
 
   const targetUrl = resolveOpenAICompatUrl(baseUrl, path)
   const proxied = shouldUseOpenAICompatProxy(targetUrl, locationLike)
+  const resolvedTargetUrl = proxied
+    ? normalizeAbsoluteHttpUrl(targetUrl, 'API 地址')
+    : targetUrl
   const headers = buildOpenAICompatHeaders(apiKey, {
     contentType,
     extraHeaders: proxied
       ? {
           ...extraHeaders,
-          'x-target-url': targetUrl
+          'x-target-url': resolvedTargetUrl
         }
       : extraHeaders
   })
 
   return {
     url: proxied ? '/api/proxy' : targetUrl,
-    targetUrl,
+    targetUrl: resolvedTargetUrl,
     proxied,
     headers
   }

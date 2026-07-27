@@ -29,7 +29,7 @@ describe('messageHistoryBuilder', () => {
   it('builds group single history with user prefixes', () => {
     const contextMsgs = [
       { role: 'user', content: 'hello' },
-      { role: 'assistant', content: '[Alice]: hi' },
+      { role: 'assistant', senderName: 'Alice', content: 'hi' },
       { role: 'user', content: '[\u56FE\u7247]', isImage: true, imageUrl: 'https://img.test/u.png' }
     ]
 
@@ -41,6 +41,22 @@ describe('messageHistoryBuilder', () => {
         content: [
           { type: 'text', text: '[\u7528\u6237]: [\u56FE\u7247]' },
           { type: 'image_url', image_url: { url: 'https://img.test/u.png' } }
+        ]
+      }
+    ])
+  })
+
+  it('keeps single-api group assistant image history attributable to the right sender', () => {
+    const contextMsgs = [
+      { role: 'assistant', senderName: 'Alice', content: '[\u56FE\u7247]', isImage: true, imageUrl: 'https://img.test/a.png' }
+    ]
+
+    expect(buildGroupSingleApiMessages(contextMsgs)).toEqual([
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '[Alice]: [\u56FE\u7247]' },
+          { type: 'image_url', image_url: { url: 'https://img.test/a.png' } }
         ]
       }
     ])

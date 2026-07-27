@@ -1,3 +1,5 @@
+import { prepareApiKey } from '../../../utils/httpHeaders'
+
 const NOVELAI_ENDPOINT = 'https://image.novelai.net/ai/generate-image'
 const NOVELAI_STREAM_ENDPOINT = 'https://image.novelai.net/ai/generate-image-stream'
 const NOVELAI_ENCODE_VIBE_ENDPOINT = 'https://image.novelai.net/ai/encode-vibe'
@@ -125,8 +127,10 @@ export function generateXInitiatedAt() {
 }
 
 export function buildNovelAIRequestHeaders(apiKey, accept = '*/*') {
+  const token = prepareApiKey(apiKey, 'NovelAI API Key')
+  if (!token) throw new Error('NovelAI API Key 未设置')
   return {
-    'Authorization': 'Bearer ' + apiKey,
+    'Authorization': 'Bearer ' + token,
     'Content-Type': 'application/json',
     'Accept': accept,
     'x-correlation-id': generateXCorrelationId(),

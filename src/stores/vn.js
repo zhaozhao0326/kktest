@@ -11,6 +11,7 @@ function defaultPlayerState() {
   return {
     // Display
     currentBg: null, // { name, url }
+    currentScene: { location: '', time: '' },
     currentBgm: null, // reserved
     sprites: [], // [{ characterId, vnName, expression, position, animation, url, isExiting }]
 
@@ -48,7 +49,8 @@ function defaultPlayerState() {
 
 function defaultImageGenConfig() {
   return {
-    provider: 'nanobanana', // 'novelai' | 'nanobanana' | 'custom'
+    provider: 'nanobanana', // 'novelai' | 'nanobanana' | 'openai_images' | 'custom'
+    imageRequestTimeoutMs: 90_000,
 
     novelai: {
       apiKey: '',
@@ -57,7 +59,7 @@ function defaultImageGenConfig() {
 
     nanobanana: {
       apiKey: '',
-      model: 'gemini-2.5-flash-image-preview',
+      model: 'gemini-2.5-flash-image',
       apiMode: 'gemini', // 'gemini' | 'openai_chat' | 'openai_images'
       endpoint: '',
       apiKeyMode: 'query', // 'query' | 'bearer' | 'x-goog-api-key' | 'x-api-key'
@@ -65,6 +67,27 @@ function defaultImageGenConfig() {
       imageSize: '',
       openaiSize: '',
       temperature: 1.0,
+      promptStyle: 'auto',
+      extraBody: ''
+    },
+
+    openaiImages: {
+      apiKey: '',
+      endpoint: '',
+      model: 'gpt-image2',
+      apiMode: 'auto',
+      apiKeyMode: 'bearer',
+      size: 'auto',
+      imageSize: '',
+      customWidth: 1024,
+      customHeight: 1024,
+      allowCustomSize: false,
+      quality: 'auto',
+      outputFormat: 'png',
+      background: 'auto',
+      moderation: '',
+      responseFormat: '',
+      promptStyle: 'auto',
       extraBody: ''
     },
 
@@ -161,6 +184,12 @@ export const useVNStore = defineStore('vn', () => {
       if (sepIdx > 0) {
         const contactId = key.slice(0, sepIdx)
         const expression = key.slice(sepIdx + 1)
+        const entry = charResStore.getEntry(contactId)
+        const sharedResource = expression === 'normal'
+          ? entry?.baseImage
+          : (entry?.expressions?.[expression] || entry?.baseImage)
+        if (sharedResource?.url) return { ...sharedResource }
+
         const url = charResStore.getSprite(contactId, expression)
         if (url) return { url }
       }
@@ -209,13 +238,34 @@ export const useVNStore = defineStore('vn', () => {
   function saveGame(slotName) {
     if (!currentProject.value) return null
 
+    const queue = Array.isArray(player.instructionQueue) ? player.instructionQueue : []
+    const currentIndex = Math.max(0, Number(player.instructionIndex) || 0)
+    const currentInstruction = queue[currentIndex]
+    const pendingCurrentInstruction = currentInstruction && ['dialog', 'narration'].includes(currentInstruction.type)
+      ? currentInstruction
+      : null
+    const pendingInstructions = queue.length > 0
+      ? queue.slice(Math.min(currentIndex + 1, queue.length))
+      : []
+
     const snapshot = {
       history: JSON.parse(JSON.stringify(currentProject.value.history)),
       variables: JSON.parse(JSON.stringify(currentProject.value.variables)),
       llmContext: JSON.parse(JSON.stringify(currentProject.value.llmContext)),
       playerSnapshot: {
         currentBg: player.currentBg,
-        sprites: JSON.parse(JSON.stringify(player.sprites))
+        currentScene: JSON.parse(JSON.stringify(player.currentScene || { location: '', time: '' })),
+        sprites: JSON.parse(JSON.stringify(player.sprites)),
+        currentDialog: player.currentDialog
+          ? JSON.parse(JSON.stringify(player.currentDialog))
+          : null,
+        currentChoices: player.currentChoices
+          ? JSON.parse(JSON.stringify(player.currentChoices))
+          : null,
+        pendingCurrentInstruction: pendingCurrentInstruction
+          ? JSON.parse(JSON.stringify(pendingCurrentInstruction))
+          : null,
+        pendingInstructions: JSON.parse(JSON.stringify(pendingInstructions))
       }
     }
 
@@ -240,9 +290,30 @@ export const useVNStore = defineStore('vn', () => {
     currentProject.value.llmContext = JSON.parse(JSON.stringify(save.snapshot.llmContext || []))
 
     resetPlayer()
-    player.currentBg = save.snapshot.playerSnapshot?.currentBg || null
-    player.sprites = JSON.parse(JSON.stringify(save.snapshot.playerSnapshot?.sprites || []))
-    return true
+    const playerSnapshot = save.snapshot.playerSnapshot || {}
+    player.currentBg = playerSnapshot.currentBg || null
+    player.currentScene = JSON.parse(JSON.stringify(
+      playerSnapshot.currentScene || { location: '', time: '' }
+    ))
+    player.sprites = JSON.parse(JSON.stringify(playerSnapshot.sprites || []))
+    player.currentDialog = playerSnapshot.currentDialog
+      ? JSON.parse(JSON.stringify(playerSnapshot.currentDialog))
+      : null
+    player.currentChoices = playerSnapshot.currentChoices
+      ? JSON.parse(JSON.stringify(playerSnapshot.currentChoices))
+      : null
+    player.isPlaying = false
+
+    const pendingInstructions = JSON.parse(JSON.stringify(playerSnapshot.pendingInstructions || []))
+    return {
+      success: true,
+      pendingCurrentInstruction: playerSnapshot.pendingCurrentInstruction
+        ? JSON.parse(JSON.stringify(playerSnapshot.pendingCurrentInstruction))
+        : null,
+      pendingInstructions,
+      waitForAdvance: !!player.currentDialog && !player.currentChoices,
+      shouldGenerate: !player.currentChoices && pendingInstructions.length === 0
+    }
   }
 
   return {

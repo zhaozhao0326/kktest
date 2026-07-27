@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   createAccessDeviceCookie: vi.fn(() => 'aichat_access_device=token'),
   createAccessDeviceToken: vi.fn(() => ({ token: 'token' })),
   createClearedCookie: vi.fn(() => 'aichat_access_device=; Max-Age=0'),
+  getRequestQueryValue: vi.fn((req, key) => req?.query?.[key] || ''),
   readAccessDeviceFromCookieHeader: vi.fn(),
   readAccessEnv: vi.fn(),
   readClientIp: vi.fn(() => '127.0.0.1'),
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   sanitizeSessionForClient: vi.fn(() => ({ provider: 'discord', userId: 'user-1' })),
   verifyAccessRequest: vi.fn(),
   claimAccessDeviceSlot: vi.fn(),
+  readAccessDeviceRegistration: vi.fn(),
   readAccessDevicesForSession: vi.fn(),
   removeAccessDeviceRegistration: vi.fn()
 }))
@@ -23,6 +25,7 @@ vi.mock('../../src/utils/accessControlServer.js', () => ({
   createAccessDeviceCookie: mocks.createAccessDeviceCookie,
   createAccessDeviceToken: mocks.createAccessDeviceToken,
   createClearedCookie: mocks.createClearedCookie,
+  getRequestQueryValue: mocks.getRequestQueryValue,
   readAccessDeviceFromCookieHeader: mocks.readAccessDeviceFromCookieHeader,
   readAccessEnv: mocks.readAccessEnv,
   readClientIp: mocks.readClientIp,
@@ -33,11 +36,12 @@ vi.mock('../../src/utils/accessControlServer.js', () => ({
 
 vi.mock('../../src/utils/accessGuardStorage.js', () => ({
   claimAccessDeviceSlot: mocks.claimAccessDeviceSlot,
+  readAccessDeviceRegistration: mocks.readAccessDeviceRegistration,
   readAccessDevicesForSession: mocks.readAccessDevicesForSession,
   removeAccessDeviceRegistration: mocks.removeAccessDeviceRegistration
 }))
 
-import handler from '../../api/access-device-claim'
+import handler from '../../api/access'
 
 function createMockRes() {
   return {
@@ -70,6 +74,7 @@ beforeEach(() => {
   mocks.createAccessDeviceCookie.mockReturnValue('aichat_access_device=token')
   mocks.createAccessDeviceToken.mockReturnValue({ token: 'token' })
   mocks.createClearedCookie.mockReturnValue('aichat_access_device=; Max-Age=0')
+  mocks.getRequestQueryValue.mockImplementation((req, key) => req?.query?.[key] || '')
   mocks.readClientIp.mockReturnValue('127.0.0.1')
   mocks.resolveAccessFailureStatus.mockImplementation((reason) => (
     reason === 'device_binding_unavailable' || reason === 'service_misconfigured' ? 503 : 401
@@ -81,7 +86,7 @@ beforeEach(() => {
   }))
 })
 
-describe('api/access-device-claim', () => {
+describe('api/access?action=device', () => {
   it('claims the current device on POST without action', async () => {
     mocks.readAccessEnv.mockReturnValue({
       deviceBindingEnabled: true,
@@ -109,6 +114,9 @@ describe('api/access-device-claim', () => {
 
     const req = {
       method: 'POST',
+      query: {
+        action: 'device'
+      },
       headers: {
         cookie: '',
         'user-agent': 'ua'
@@ -171,6 +179,9 @@ describe('api/access-device-claim', () => {
 
     const req = {
       method: 'GET',
+      query: {
+        action: 'device'
+      },
       headers: {}
     }
     const res = createMockRes()
@@ -226,6 +237,9 @@ describe('api/access-device-claim', () => {
 
     const req = {
       method: 'POST',
+      query: {
+        action: 'device'
+      },
       headers: {
         cookie: 'aichat_access_device=device-2'
       },

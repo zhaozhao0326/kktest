@@ -7,12 +7,18 @@
  *  3. Multi-turn loop: execute tools → send results → stream final response
  */
 
-import { consumeToolAwareChatCompletionsStream } from './toolAwareStream'
-import { buildChatCompletionPayload } from './chatCompletions'
-import { fetchOpenAICompat, readOpenAICompatError } from './openaiCompat'
+import {
+  buildProviderChatPayload,
+  consumeProviderChatStream,
+  fetchProviderChat,
+  readProviderChatError,
+  summarizeProviderRequestPayload
+} from './providerRequest'
 import { estimatePromptBreakdownFromMessages, estimateUsageFromMessages, recordUsage } from './usage'
-import { createAssistantMessage } from './assistantMessageLifecycle'
+import { appendAssistantReasoning, createAssistantMessage, setAssistantReasoning } from './assistantMessageLifecycle'
+import { createStreamValueBatcher } from './responseHelpers'
 import { executeToolCalls } from './tools/toolCallExecutor'
+import { addDebugLog } from '../useDebugLog'
 
 /**
  * Execute a streamed assistant request with tool-calling support.
@@ -72,11 +78,26 @@ export async function executeToolAwareStreamedRequest({
       tool_choice: enableTools ? undefined : 'none'
     }
 
-    const payload = buildChatCompletionPayload(cfg, currentMessages, payloadOptions)
-    const { request, response: res } = await fetchOpenAICompat(cfg.url, {
-      apiKey: cfg.key,
-      body: payload
+    const payload = buildProviderChatPayload(cfg, currentMessages, payloadOptions)
+    const payloadBody = summarizeProviderRequestPayload(payload)
+    addDebugLog({
+      level: 'info',
+      scope: 'api.chat',
+      message: toolRoundCount === 0 ? '发送聊天请求' : '发送工具续轮请求',
+      details: {
+        traceId,
+        round: toolRoundCount + 1,
+        model: cfg?.model || '',
+        baseUrl: cfg?.url || '',
+        messageCount: currentMessages.length,
+        apiFormat: cfg?.apiFormat || 'openai-compatible',
+        toolsCount: Array.isArray(payloadBody?.tools) ? payloadBody.tools.length : 0,
+        maxTokens: payloadBody?.max_tokens ?? payloadBody?.generationConfig?.maxOutputTokens ?? null,
+        temperature: payloadBody?.temperature ?? payloadBody?.generationConfig?.temperature ?? null,
+        reasoningEffort: payloadBody?.reasoning_effort || ''
+      }
     })
+    const { request, response: res } = await fetchProviderChat(cfg, payload)
     const url = request.targetUrl
     if (!finalUrl) finalUrl = url
 
@@ -84,7 +105,7 @@ export async function executeToolAwareStreamedRequest({
     if (typeof setThinking === 'function') setThinking(true)
 
     if (!res.ok) {
-      throw new Error(await readOpenAICompatError(res))
+      throw new Error(await readProviderChatError(cfg, res))
     }
 
     // Create assistant message in chat (only on first round)
@@ -96,30 +117,77 @@ export async function executeToolAwareStreamedRequest({
     }
 
     finalStreamMsg = assistantStreamMsg || activeChat.msgs[activeChat.msgs.length - 1]
-    const streamBatcher = createStreamChunkBatcher(finalStreamMsg, onChunk)
+    const streamBatcher = createStreamChunkBatcher(finalStreamMsg, onChunk, activeChat)
+    const currentRound = toolRoundCount + 1
+    const reasoningBatcher = createStreamValueBatcher(content => {
+      if (!setAssistantReasoning(finalStreamMsg, content, currentRound)) return
+      finalStreamMsg.reasoningStreaming = true
+      finalStreamMsg.reasoningStreamingRound = currentRound
+      onChunk?.(finalStreamMsg.displayContent != null ? finalStreamMsg.displayContent : finalStreamMsg.content)
+    })
 
     let firstDeltaReceived = false
-    const streamInfo = await consumeToolAwareChatCompletionsStream(res, {
-      onDelta(delta) {
+    const streamInfo = await consumeProviderChatStream(cfg, res, (delta) => {
         if (!firstDeltaReceived) {
           firstDeltaReceived = true
           if (typeof setThinking === 'function') setThinking(false)
         }
         streamBatcher.push(delta)
+    }, {
+      toolAware: true,
+      onReasoningDelta(content) {
+        reasoningBatcher.push(content)
       }
     })
 
     streamBatcher.flushNow()
+    reasoningBatcher.flushNow()
     finalStreamInfo = streamInfo
+    appendAssistantReasoning(finalStreamMsg, streamInfo?.reasoningContent, currentRound)
+    finalStreamMsg.reasoningStreaming = false
+    delete finalStreamMsg.reasoningStreamingRound
+
+    if (Number(streamInfo?.filteredReasoningChars || 0) > 0) {
+      addDebugLog({
+        level: 'info',
+        scope: 'api.reasoning',
+        message: '已清洗模型推理内容',
+        details: {
+          traceId,
+          round: toolRoundCount + 1,
+          model: cfg?.model || '',
+          filteredChars: streamInfo.filteredReasoningChars
+        }
+      })
+    }
 
     // If model returned tool_calls, execute them and loop
     if (enableTools && streamInfo.toolCalls && streamInfo.toolCalls.length > 0) {
+      addDebugLog({
+        level: 'info',
+        scope: 'api.tools',
+        message: '模型请求调用工具',
+        details: {
+          traceId,
+          round: toolRoundCount + 1,
+          toolCalls: streamInfo.toolCalls.map(call => ({
+            id: call?.id,
+            type: call?.type,
+            name: call?.function?.name
+          }))
+        }
+      })
       // Append assistant message with tool_calls to conversation
-      currentMessages.push({
+      const assistantToolMessage = {
         role: 'assistant',
         content: finalStreamMsg.content || null,
         tool_calls: streamInfo.toolCalls
-      })
+      }
+      const reasoningContent = String(streamInfo?.reasoningContent || '').trim()
+      if (reasoningContent) {
+        assistantToolMessage.reasoning_content = reasoningContent
+      }
+      currentMessages.push(assistantToolMessage)
 
       // Execute tools
       const { messages: toolResults, logs: toolLogs } = await executeToolCalls(
@@ -150,6 +218,20 @@ export async function executeToolAwareStreamedRequest({
   const estimatedUsage = estimateUsageFromMessages(currentMessages, finalStreamMsg?.content, cfg.model)
   const promptBreakdown = estimatePromptBreakdownFromMessages(currentMessages, cfg.model)
   recordUsage(activeChat, finalStreamInfo, estimatedUsage, cfg.model, { promptBreakdown })
+
+  addDebugLog({
+    level: 'info',
+    scope: 'api.chat',
+    message: '聊天响应完成',
+    details: {
+      traceId,
+      model: cfg?.model || '',
+      url: finalUrl,
+      finishReason: finalStreamInfo?.finishReason || '',
+      emittedChars: finalStreamInfo?.emittedChars ?? null,
+      toolRounds: toolRoundCount
+    }
+  })
 
   return {
     url: finalUrl,

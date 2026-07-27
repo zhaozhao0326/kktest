@@ -7,6 +7,7 @@
 
     <div class="card-body">
       <div class="card-tags">
+        <span v-if="entry.source === 'assistant'" class="tag source-tag">AI 代记</span>
         <span v-if="entry.mood" class="tag mood-tag">{{ entry.mood }}</span>
         <span v-if="entry.weather" class="tag weather-tag">{{ entry.weather }}</span>
       </div>
@@ -92,6 +93,12 @@ const monthStr = computed(() => {
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 20px;
+}
+
+.source-tag {
+  background: rgba(0,122,255,0.12);
+  color: var(--primary-color, #007AFF);
+  border: 1px solid rgba(0,122,255,0.2);
 }
 
 .mood-tag {

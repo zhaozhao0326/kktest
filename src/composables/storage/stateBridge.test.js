@@ -168,7 +168,7 @@ describe('stateBridge settings schema', () => {
     expect(settings.allowAICall).toBe(true)
     expect(settings.weatherLocationMode).toBe('auto')
     expect(settings.weatherRefreshMinutes).toBe(360)
-    expect(settings.timeZoneMode).toBe('beijing')
+    expect(settings.timeZoneMode).toBe('device')
     expect(settings.customTimeZone).toBe('Asia/Shanghai')
     expect(settings.sttTriggerMode).toBe('auto')
     expect(settings.sttProvider).toBe('openai-compatible')

@@ -150,7 +150,7 @@ watch(() => route.path, (to, from) => {
     transitionName.value = 'route-none'
     return
   }
-  const order = ['/', '/favorites', '/messages', '/chat', '/snoop', '/persona', '/settings', '/lorebook', '/moments', '/theme', '/album', '/vn', '/meet', '/planner']
+  const order = ['/', '/favorites', '/messages', '/chat', '/snoop', '/persona', '/settings', '/debug-logs', '/lorebook', '/moments', '/theme', '/album', '/meet', '/vn', '/planner']
   const toIndex = order.findIndex(p => to.startsWith(p))
   const fromIndex = order.findIndex(p => from?.startsWith(p))
   transitionName.value = toIndex > fromIndex ? 'slide-left' : 'slide-right'

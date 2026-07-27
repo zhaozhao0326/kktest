@@ -6,10 +6,10 @@ import { useConfigsStore } from '../stores/configs'
 import { useContactsStore } from '../stores/contacts'
 import { usePersonasStore } from '../stores/personas'
 import { useSettingsStore } from '../stores/settings'
-import { fetchOpenAICompat } from './api/openaiCompat'
-import { applyOptionalMaxTokens } from './api/chatCompletions'
+import { requestNonStreamingChatText } from './api/nonStreamingChat'
 import { useStorage } from './useStorage'
 import { makeId } from '../utils/id'
+import { extractPersonaFromPrompt } from '../utils/personaPrompt'
 
 const SCHEDULE_CACHE_MS = 6 * 60 * 60 * 1000 // 6 hours
 
@@ -24,26 +24,6 @@ export function needsScheduleRefresh(contactId, dateStr) {
   if (!Number.isFinite(generatedAt) || generatedAt <= 0) return true
   if (!Array.isArray(schedule.slots) || schedule.slots.length === 0) return true
   return Date.now() - generatedAt > SCHEDULE_CACHE_MS
-}
-
-/**
- * 从角色 prompt 中提取人设相关内容，过滤掉格式指令/输出规则等
- * 保留全部人设内容，不做字数截断
- */
-function extractPersonaFromPrompt(prompt) {
-  if (!prompt) return ''
-  const lines = prompt.split(/\r?\n/)
-  const filtered = lines.filter(line => {
-    const trimmed = line.trim()
-    if (!trimmed) return true
-    // 过滤输出格式/token 语法等与人设无关的指令行
-    if (/^(输出|格式|规则|注意|要求|token|指令|禁止|不[要得]|必须|每[一条行]|回复时|仅在|独占一行)/i.test(trimmed)) return false
-    if (/^\d+[.)、]\s*(每|不[要得]|必须|输出|禁止|保持|回复|使用|避免)/i.test(trimmed)) return false
-    if (/\(sticker:|image:|voice:|call:|transfer:|gift:|music:|camera:/i.test(trimmed)) return false
-    if (/danbooru|tag|token/i.test(trimmed) && /格式|输出|规则/i.test(trimmed)) return false
-    return true
-  })
-  return filtered.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 /**
@@ -185,31 +165,14 @@ ${weekdayHint}
 只输出 JSON。`
 
   try {
-    const body = {
-      model: cfg.model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: regenerate
-          ? `请重新生成${contact.name}在${dateStr}（${dayOfWeek}）的日程安排。记住今天是${dayOfWeek}，每件事要具体确定，不要用"或"。变体编号：${regenerationSeed}`
-          : `请生成${contact.name}在${dateStr}（${dayOfWeek}）的日程安排。记住每件事要具体确定，不要用"或"。` }
-      ],
-      temperature: regenerate ? 1 : 0.9,
-      stream: false
-    }
-    applyOptionalMaxTokens(body, cfg.maxTokens)
-
-    const { response: res } = await fetchOpenAICompat(cfg.url, {
-      apiKey: cfg.key,
-      body
+    const { content: text } = await requestNonStreamingChatText(cfg, [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: regenerate
+        ? `请重新生成${contact.name}在${dateStr}（${dayOfWeek}）的日程安排。记住今天是${dayOfWeek}，每件事要具体确定，不要用"或"。变体编号：${regenerationSeed}`
+        : `请生成${contact.name}在${dateStr}（${dayOfWeek}）的日程安排。记住每件事要具体确定，不要用"或"。` }
+    ], {
+      temperature: regenerate ? 1 : 0.9
     })
-
-    if (!res.ok) {
-      console.warn('[CharacterSchedule] API error:', res.status)
-      return null
-    }
-
-    const data = await res.json()
-    const text = data.choices?.[0]?.message?.content || ''
 
     // 解析 JSON（处理 markdown 代码块）
     const cleaned = text.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim()

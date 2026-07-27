@@ -26,8 +26,12 @@ function sendCustom() {
         :style="{ animationDelay: `${idx * 80}ms` }"
         @click.stop="emit('select', opt)"
       >
-        <span class="meet-choice-text">{{ opt.text }}</span>
-        <span v-if="opt.effect" class="meet-choice-effect">{{ opt.effect }}</span>
+        <span class="meet-choice-num">{{ idx + 1 }}</span>
+        <span class="meet-choice-body">
+          <span class="meet-choice-text">{{ opt.text }}</span>
+          <span v-if="opt.effect" class="meet-choice-effect">{{ opt.effect }}</span>
+        </span>
+        <i class="ph ph-caret-right meet-choice-arrow"></i>
       </button>
 
       <!-- Custom Response -->
@@ -83,91 +87,132 @@ function sendCustom() {
 
 .meet-choice-btn {
   width: 100%;
-  background: linear-gradient(to bottom, rgba(80, 80, 80, 0.85), rgba(40, 40, 40, 0.85));
-  border: 1px solid rgba(0, 0, 0, 0.8);
-  border-top: 2px solid #222;
-  border-bottom: 2px solid #111;
-  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
   color: #fff;
-  font-size: 1rem;
-  line-height: 1.4;
-  font-weight: 700;
-  font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
-  letter-spacing: 1px;
-  text-align: center;
+  text-align: left;
   cursor: pointer;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.5);
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.meet-choice-btn:active {
+  transform: scale(0.97) translateX(4px);
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.meet-choice-num {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #fff;
+  transition: transform 0.15s ease;
+}
+
+.meet-choice-btn:active .meet-choice-num {
+  transform: scale(0.88);
+}
+
+.meet-choice-body {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 
 .meet-choice-text {
-  width: 100%;
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.95);
   white-space: normal;
   word-break: break-word;
 }
 
-.meet-choice-btn:hover {
-  background: linear-gradient(to bottom, rgba(100, 100, 100, 0.9), rgba(60, 60, 60, 0.9));
-  transform: scale(1.02);
-}
-
-.meet-choice-btn:active {
-  transform: scale(0.98);
-  background: linear-gradient(to bottom, rgba(60, 60, 60, 0.9), rgba(30, 30, 30, 0.9));
-}
-
 .meet-choice-effect {
-  font-size: 0.72rem;
-  opacity: 0.5;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.42);
   font-style: italic;
   font-weight: 400;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
+}
+
+.meet-choice-arrow {
+  flex-shrink: 0;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.3);
+  transition: transform 0.2s ease;
+}
+
+.meet-choice-btn:active .meet-choice-arrow {
+  transform: translateX(3px);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .meet-custom-input-box {
-  background: rgba(30, 30, 30, 0.85);
-  border: 2px solid #333;
-  padding: 4px 4px 4px 16px;
   display: flex;
   align-items: center;
-  margin-top: 2px;
+  gap: 8px;
   width: 100%;
+  margin-top: 2px;
+  padding: 5px 5px 5px 18px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
 }
 
 .meet-custom-input {
   flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
   outline: none;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 0.95rem;
-  height: 40px;
-  font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
-  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 14px;
+  height: 38px;
+  letter-spacing: 0.5px;
 }
 
-.meet-custom-input::placeholder { color: rgba(255, 255, 255, 0.3); }
+.meet-custom-input::placeholder { color: rgba(255, 255, 255, 0.35); }
 
 .meet-custom-send {
-  width: 40px;
-  height: 40px;
-  background: #000;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 50%;
   border: none;
+  background: linear-gradient(135deg, #f472b6, #db2777);
   color: #fff;
   font-size: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.2s;
+  box-shadow: 0 4px 14px rgba(219, 39, 119, 0.35);
+  transition: transform 0.2s ease;
 }
 
-.meet-custom-send:hover { background: #333; }
-.meet-custom-send:active { transform: scale(0.9); }
+.meet-custom-send:active { transform: scale(0.88); }
 
 @keyframes slideIn {
   from { transform: translateY(12px); opacity: 0; }
@@ -185,12 +230,16 @@ function sendCustom() {
   }
 
   .meet-choice-btn {
-    font-size: 0.94rem;
-    padding: 10px 12px;
+    padding: 12px 14px;
+    gap: 11px;
+  }
+
+  .meet-choice-text {
+    font-size: 13.5px;
   }
 
   .meet-custom-input {
-    font-size: 0.9rem;
+    font-size: 13px;
   }
 }
 </style>

@@ -34,8 +34,8 @@
             <p class="text-sm text-gray-400">暂无背景资源</p>
           </div>
           <div v-else class="grid grid-cols-2 gap-4">
-            <div v-for="bg in bgEntries" :key="bg.name" class="group">
-              <div class="aspect-video bg-gray-100 rounded-[20px] overflow-hidden border border-gray-100 shadow-sm">
+            <div v-for="(bg, idx) in bgEntries" :key="bg.name" class="group" @click="bg.url && openViewer('bg', idx)">
+              <div class="aspect-video bg-gray-100 rounded-[20px] overflow-hidden border border-gray-100 shadow-sm" :class="{ 'cursor-zoom-in': bg.url }">
                 <div v-if="bg.url" class="w-full h-full bg-cover bg-center" :style="{ backgroundImage: `url('${bg.url}')` }"></div>
                 <div v-else class="w-full h-full flex items-center justify-center text-gray-200">
                   <i class="ph ph-image text-3xl"></i>
@@ -63,8 +63,8 @@
             <p class="text-sm text-gray-400">暂无立绘资源</p>
           </div>
           <div v-else class="grid grid-cols-3 gap-3">
-            <div v-for="sp in spriteEntries" :key="sp.key" class="flex flex-col items-center">
-              <div class="w-full aspect-[3/4] bg-white rounded-[20px] border border-gray-100 shadow-sm overflow-hidden flex items-end justify-center p-2">
+            <div v-for="(sp, idx) in spriteEntries" :key="sp.key" class="flex flex-col items-center" @click="sp.url && openViewer('sprite', idx)">
+              <div class="w-full aspect-[3/4] bg-white rounded-[20px] border border-gray-100 shadow-sm overflow-hidden flex items-end justify-center p-2" :class="{ 'cursor-zoom-in': sp.url }">
                 <img v-if="sp.url" :src="sp.url" class="h-full w-auto object-contain" alt="">
                 <div v-else class="w-full h-full rounded-xl bg-gray-50 flex items-center justify-center">
                   <i class="ph ph-user text-3xl text-gray-200"></i>
@@ -161,6 +161,48 @@
         </section>
       </template>
     </main>
+
+    <!-- Fullscreen viewer -->
+    <Transition name="vn-viewer">
+      <div
+        v-if="viewer"
+        class="fixed inset-0 z-50 bg-black/95 flex flex-col"
+        @click="closeViewer"
+        @touchstart.passive="onViewerTouchStart"
+        @touchend.passive="onViewerTouchEnd"
+      >
+        <div class="flex items-center justify-between px-5" :style="{ paddingTop: 'var(--app-pt-lg, 48px)' }">
+          <span class="text-white/60 text-[13px]">{{ viewer.index + 1 }} / {{ viewer.list.length }}</span>
+          <button class="w-10 h-10 rounded-full bg-white/10 text-white flex items-center justify-center active:scale-90 transition-transform" @click.stop="closeViewer">
+            <i class="ph-bold ph-x"></i>
+          </button>
+        </div>
+
+        <div class="flex-1 min-h-0 flex items-center justify-center px-4 py-3">
+          <img :src="viewerItem.url" class="max-w-full max-h-full object-contain select-none" alt="" @click.stop>
+        </div>
+
+        <div class="px-6 pb-10 text-center" @click.stop>
+          <p class="text-white font-bold text-[15px] truncate">{{ viewerItem.title }}</p>
+          <p v-if="viewerItem.prompt" class="mt-1 text-white/50 text-[12px] leading-relaxed line-clamp-3">{{ viewerItem.prompt }}</p>
+        </div>
+
+        <button
+          v-if="viewer.index > 0"
+          class="absolute left-3 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-white/10 text-white flex items-center justify-center active:scale-90 transition-transform"
+          @click.stop="stepViewer(-1)"
+        >
+          <i class="ph-bold ph-caret-left"></i>
+        </button>
+        <button
+          v-if="viewer.index < viewer.list.length - 1"
+          class="absolute right-3 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-white/10 text-white flex items-center justify-center active:scale-90 transition-transform"
+          @click.stop="stepViewer(1)"
+        >
+          <i class="ph-bold ph-caret-right"></i>
+        </button>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -288,4 +330,59 @@ function goPlay() {
   vnStore.setCurrentProject(projectId.value)
   router.push(`/vn/play/${projectId.value}`)
 }
+
+// ===== Fullscreen viewer =====
+const viewer = ref(null) // { list: [{ url, title, prompt }], index }
+let touchStartX = 0
+
+const viewerItem = computed(() => viewer.value?.list[viewer.value.index] || {})
+
+function openViewer(kind, index) {
+  const source = kind === 'bg' ? bgEntries.value : spriteEntries.value
+  const list = source
+    .map(item => ({
+      url: item.url,
+      title: kind === 'bg' ? item.name : item.key.split('_')[0] + ' · ' + item.key.split('_').slice(1).join('_'),
+      prompt: item.prompt || ''
+    }))
+    .filter(item => !!item.url)
+  if (list.length === 0) return
+
+  // 网格 index 基于全量条目，映射到过滤后的列表
+  const clicked = source[index]
+  const listIndex = list.findIndex(item => item.url === clicked?.url)
+  viewer.value = { list, index: Math.max(0, listIndex) }
+}
+
+function closeViewer() {
+  viewer.value = null
+}
+
+function stepViewer(delta) {
+  if (!viewer.value) return
+  const next = viewer.value.index + delta
+  if (next < 0 || next >= viewer.value.list.length) return
+  viewer.value.index = next
+}
+
+function onViewerTouchStart(e) {
+  touchStartX = e.touches?.[0]?.clientX ?? 0
+}
+
+function onViewerTouchEnd(e) {
+  const endX = e.changedTouches?.[0]?.clientX ?? 0
+  const dx = endX - touchStartX
+  if (Math.abs(dx) > 50) stepViewer(dx < 0 ? 1 : -1)
+}
 </script>
+
+<style scoped>
+.vn-viewer-enter-active,
+.vn-viewer-leave-active {
+  transition: opacity 0.2s ease;
+}
+.vn-viewer-enter-from,
+.vn-viewer-leave-to {
+  opacity: 0;
+}
+</style>

@@ -7,21 +7,23 @@
  */
 
 import { createToolCallAccumulator } from './tools/toolCallAccumulator'
+import {
+  cleanReasoningContent,
+  createReasoningContentFilter,
+  extractReasoningTextFromChoice,
+  extractVisibleTextFromContent
+} from './reasoningContent'
 
 function extractTextFromChoice(choice) {
   if (!choice || typeof choice !== 'object') return ''
 
   const deltaContent = choice?.delta?.content
-  if (typeof deltaContent === 'string') return deltaContent
-  if (Array.isArray(deltaContent)) {
-    return deltaContent.map(p => (typeof p?.text === 'string' ? p.text : '')).join('')
-  }
+  const deltaText = extractVisibleTextFromContent(deltaContent)
+  if (deltaText) return deltaText
 
   const msgContent = choice?.message?.content
-  if (typeof msgContent === 'string') return msgContent
-  if (Array.isArray(msgContent)) {
-    return msgContent.map(p => (typeof p?.text === 'string' ? p.text : '')).join('')
-  }
+  const messageText = extractVisibleTextFromContent(msgContent)
+  if (messageText) return messageText
 
   return ''
 }
@@ -43,6 +45,39 @@ function extractToolCallsDelta(payload) {
   return choice?.delta?.tool_calls || choice?.message?.tool_calls || null
 }
 
+function createStreamingTextAccumulator(initialText = '') {
+  let text = String(initialText || '')
+  let lastChunk = ''
+
+  return {
+    getText() {
+      return text
+    },
+    push(delta) {
+      const piece = String(delta || '')
+      if (!piece) return text
+
+      if (text && piece.startsWith(text)) {
+        text = piece
+      } else if (!(piece === lastChunk && text.endsWith(piece))) {
+        text += piece
+      }
+
+      lastChunk = piece
+      return text
+    }
+  }
+}
+
+function mergeReasoningText(...values) {
+  const unique = []
+  values.forEach(value => {
+    const text = String(value || '').trim()
+    if (text && !unique.includes(text)) unique.push(text)
+  })
+  return unique.join('\n\n')
+}
+
 /**
  * Consume a streamed /chat/completions response, extracting both text deltas
  * and tool_calls deltas.
@@ -53,7 +88,7 @@ function extractToolCallsDelta(payload) {
  * @param {(toolCalls: Array) => void} [callbacks.onToolCallDelta]  called per tool_calls chunk
  * @returns {Promise<{emittedChars, emittedEvents, usedFallback, usage, finishReason, toolCalls}>}
  */
-export async function consumeToolAwareChatCompletionsStream(res, { onDelta, onToolCallDelta } = {}) {
+export async function consumeToolAwareChatCompletionsStream(res, { onDelta, onToolCallDelta, onReasoningDelta } = {}) {
   const reader = res?.body?.getReader?.()
   if (!reader) {
     throw new Error('当前环境不支持流式读取')
@@ -68,12 +103,35 @@ export async function consumeToolAwareChatCompletionsStream(res, { onDelta, onTo
   let emittedEvents = 0
   let usage = null
   let finishReason = null
+  const reasoningAccumulator = createStreamingTextAccumulator()
+  let filteredReasoningChars = 0
+  let reasoningFilter = null
+  const notifyReasoning = () => {
+    const reasoningContent = mergeReasoningText(
+      reasoningAccumulator.getText(),
+      reasoningFilter?.getReasoningText()
+    )
+    if (reasoningContent && typeof onReasoningDelta === 'function') {
+      onReasoningDelta(reasoningContent)
+    }
+  }
+  reasoningFilter = createReasoningContentFilter({ onReasoning: notifyReasoning })
 
   const emitText = (text) => {
     if (!text || typeof text !== 'string') return
-    emittedChars += text.length
+    const visibleText = reasoningFilter.push(text)
+    if (!visibleText) return
+    emittedChars += visibleText.length
     emittedEvents += 1
-    if (typeof onDelta === 'function') onDelta(text)
+    if (typeof onDelta === 'function') onDelta(visibleText)
+  }
+
+  const noteReasoningText = (choice) => {
+    const reasoningText = extractReasoningTextFromChoice(choice)
+    if (!reasoningText) return
+    filteredReasoningChars += reasoningText.length
+    reasoningAccumulator.push(reasoningText)
+    notifyReasoning()
   }
 
   const processEvent = () => {
@@ -84,6 +142,8 @@ export async function consumeToolAwareChatCompletionsStream(res, { onDelta, onTo
 
     try {
       const payload = JSON.parse(payloadText)
+      const firstChoice = payload?.choices?.[0]
+      noteReasoningText(firstChoice)
 
       // Extract text content
       emitText(extractTextFromPayload(payload))
@@ -139,6 +199,14 @@ export async function consumeToolAwareChatCompletionsStream(res, { onDelta, onTo
   }
   processEvent()
 
+  const trailingVisibleText = reasoningFilter.flush()
+  if (trailingVisibleText) {
+    emittedChars += trailingVisibleText.length
+    emittedEvents += 1
+    if (typeof onDelta === 'function') onDelta(trailingVisibleText)
+  }
+  filteredReasoningChars += reasoningFilter.getRemovedChars()
+
   // Fallback: try non-streaming JSON parse
   let usedFallback = false
   if (emittedChars === 0 && !accumulator.hasToolCalls()) {
@@ -146,10 +214,17 @@ export async function consumeToolAwareChatCompletionsStream(res, { onDelta, onTo
     if (text) {
       try {
         const payload = JSON.parse(text)
-        const fallbackText = extractTextFromPayload(payload)
-        if (fallbackText) {
+        const firstChoice = payload?.choices?.[0]
+        noteReasoningText(firstChoice)
+        const cleanedFallback = cleanReasoningContent(extractTextFromPayload(payload))
+        if (cleanedFallback.removedChars > 0) filteredReasoningChars += cleanedFallback.removedChars
+        reasoningAccumulator.push(cleanedFallback.reasoningContent)
+        notifyReasoning()
+        if (cleanedFallback.text) {
           usedFallback = true
-          emitText(fallbackText)
+          emittedChars += cleanedFallback.text.length
+          emittedEvents += 1
+          if (typeof onDelta === 'function') onDelta(cleanedFallback.text)
         }
         const toolCallsDelta = extractToolCallsDelta(payload)
         if (toolCallsDelta) {
@@ -175,6 +250,8 @@ export async function consumeToolAwareChatCompletionsStream(res, { onDelta, onTo
     usedFallback,
     usage,
     finishReason,
+    filteredReasoningChars,
+    reasoningContent: mergeReasoningText(reasoningAccumulator.getText(), reasoningFilter.getReasoningText()),
     toolCalls
   }
 }

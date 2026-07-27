@@ -15,10 +15,11 @@ function createParser(messages, options = {}) {
     allowAIMusicRecommend: () => true,
     allowAIMeet: () => true,
     showToolLog: () => !!options.showToolLog,
+    showReasoning: () => !!options.showReasoning,
     timestampGapMs: 0,
     getAnimateMsgId: () => null,
-    isGroupChat: () => false,
-    getGroupMembers: () => [],
+    isGroupChat: () => !!options.isGroupChat,
+    getGroupMembers: () => options.groupMembers || [],
     showChatAvatars: () => false,
     getContactAvatar: () => null,
     getUserAvatar: () => null,
@@ -66,6 +67,31 @@ describe('useMessageParser', () => {
         msgId: 'msg-1',
         contactId: 'contact-1',
         text: '收藏里的语音'
+      }
+    ])
+  })
+
+  it('binds group assistant voice blocks to the sender contact', () => {
+    const { blocks } = createParser([
+      {
+        id: 'msg-1',
+        role: 'assistant',
+        senderId: 'member-1',
+        content: '(voice:群聊角色语音)'
+      }
+    ], {
+      isGroupChat: true,
+      groupMembers: [
+        { id: 'member-1', contactId: 'contact-role-1', name: '角色一' }
+      ]
+    })
+
+    expect(blocks.value).toMatchObject([
+      {
+        type: 'voice',
+        msgId: 'msg-1',
+        contactId: 'contact-role-1',
+        text: '群聊角色语音'
       }
     ])
   })
@@ -202,6 +228,53 @@ describe('useMessageParser', () => {
       type: 'bubble',
       text: '只显示正文'
     })
+  })
+
+  it('renders reasoning before tool calls and keeps it hidden by default', () => {
+    const messages = [
+      {
+        id: 'msg-reasoning-1',
+        role: 'assistant',
+        content: '已经查询完成',
+        reasoningLogs: [
+          { content: '用户想测试联网搜索，我需要先选择搜索工具。', round: 1 }
+        ],
+        reasoningStreaming: true,
+        reasoningStreamingRound: 1,
+        toolLogs: [
+          { displayName: 'WebSearch', success: true, round: 1 }
+        ]
+      }
+    ]
+
+    const hiddenParser = createParser(messages, { showToolLog: true })
+    expect(hiddenParser.blocks.value.map(block => block.type)).toEqual(['toolLog', 'bubble'])
+
+    const visibleParser = createParser(messages, { showToolLog: true, showReasoning: true })
+    expect(visibleParser.blocks.value.map(block => block.type)).toEqual(['reasoning', 'toolLog', 'bubble'])
+    expect(visibleParser.blocks.value[0]).toMatchObject({
+      content: '用户想测试联网搜索，我需要先选择搜索工具。',
+      round: 1,
+      streaming: true
+    })
+  })
+
+  it('marks only the active reasoning round as streaming', () => {
+    const { blocks } = createParser([
+      {
+        id: 'msg-reasoning-stream',
+        role: 'assistant',
+        content: '',
+        reasoningLogs: [
+          { content: '第一轮思考', round: 1 },
+          { content: '第二轮思考中', round: 2 }
+        ],
+        reasoningStreaming: true,
+        reasoningStreamingRound: 2
+      }
+    ], { showReasoning: true })
+
+    expect(blocks.value.map(block => block.streaming)).toEqual([false, true])
   })
 
   it('prefers persisted gift snapshots over live catalog lookup when rendering gift cards', () => {

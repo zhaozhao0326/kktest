@@ -28,6 +28,12 @@
           <template v-else-if="h.type === 'narration'">
             <div class="vn-hist-narration">{{ h.text }}</div>
           </template>
+          <template v-else-if="h.type === 'scene'">
+            <div class="vn-hist-scene">
+              <i class="ph ph-map-pin"></i>
+              <span>{{ [h.location, h.time].filter(Boolean).join(' · ') }}</span>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -146,6 +152,17 @@ const history = computed(() => {
   padding-left: 16px;
   border-left: 2px solid rgba(99, 102, 241, 0.4);
 }
+
+.vn-hist-scene {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(244, 114, 182, 0.72);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.vn-hist-scene i { font-size: 15px; }
 
 /* Panel transition */
 .vn-panel-enter-active { transition: all 0.4s cubic-bezier(0.32, 0.72, 0, 1); }

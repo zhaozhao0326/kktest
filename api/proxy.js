@@ -55,6 +55,27 @@ function isAllowedUrl(url) {
   }
 }
 
+const SKIP_FORWARD_HEADERS = new Set([
+  'host', 'connection', 'cookie', 'x-target-url', 'x-forwarded-for',
+  'x-forwarded-host', 'x-forwarded-proto', 'x-vercel-id',
+  'x-real-ip', 'transfer-encoding', 'content-length',
+  'origin', 'referer', 'accept-encoding'
+])
+const SKIP_FORWARD_HEADER_PREFIXES = ['x-vercel-', 'x-forwarded-', 'sec-', 'cf-']
+
+export function buildProxyForwardHeaders(headers = {}) {
+  const forwardHeaders = {}
+  for (const [key, value] of Object.entries(headers || {})) {
+    const normalizedKey = String(key || '').toLowerCase()
+    const shouldSkip = SKIP_FORWARD_HEADERS.has(normalizedKey) ||
+      SKIP_FORWARD_HEADER_PREFIXES.some(prefix => normalizedKey.startsWith(prefix))
+    if (!shouldSkip && value !== undefined) {
+      forwardHeaders[key] = value
+    }
+  }
+  return forwardHeaders
+}
+
 export default async function handler(req, res) {
   // CORS preflight
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -84,20 +105,8 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Target host not in allowlist', host: String(targetUrl) })
   }
 
-  // Forward headers (skip hop-by-hop and internal ones)
-  const skipHeaders = new Set([
-    'host', 'connection', 'x-target-url', 'x-forwarded-for',
-    'x-forwarded-host', 'x-forwarded-proto', 'x-vercel-id',
-    'x-real-ip', 'transfer-encoding', 'content-length',
-    'origin', 'referer'
-  ])
-
-  const forwardHeaders = {}
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (!skipHeaders.has(key.toLowerCase())) {
-      forwardHeaders[key] = value
-    }
-  }
+  // Do not leak browser cookies or deployment/CDN metadata to the upstream API.
+  const forwardHeaders = buildProxyForwardHeaders(req.headers)
 
   try {
     const method = req.method === 'GET' ? 'GET' : 'POST'

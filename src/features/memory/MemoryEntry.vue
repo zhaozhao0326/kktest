@@ -73,6 +73,13 @@
           <span v-if="memory.msgRange?.count">{{ memory.msgRange.count }} 条消息</span>
           <span v-else>{{ timeAgo }}</span>
           <span
+            v-if="confidenceLabel"
+            class="summary-status-chip"
+            :class="confidenceClass"
+          >
+            {{ confidenceLabel }}
+          </span>
+          <span
             v-if="summaryStatusLabel"
             class="summary-status-chip"
             :class="summaryStatusClass"
@@ -172,6 +179,23 @@ const summaryStatusClass = computed(() => {
   return ''
 })
 
+const confidenceLabel = computed(() => {
+  if (props.type !== 'core') return ''
+  const value = String(props.memory?.confidence || '').trim()
+  if (value === 'high') return '高置信'
+  if (value === 'medium') return '中置信'
+  if (value === 'low') return '低置信'
+  return ''
+})
+
+const confidenceClass = computed(() => {
+  const value = String(props.memory?.confidence || '').trim()
+  if (value === 'high') return 'is-confidence-high'
+  if (value === 'medium') return 'is-confidence-medium'
+  if (value === 'low') return 'is-confidence-low'
+  return ''
+})
+
 function handleTouchStart(e) {
   startX = e.touches[0].clientX
   startY = e.touches[0].clientY
@@ -259,6 +283,24 @@ function handleDelete() {
 }
 
 .summary-status-chip.is-truncated {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.summary-status-chip.is-confidence-high {
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.summary-status-chip.is-confidence-medium {
+  color: #3b82f6;
+  border-color: rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.summary-status-chip.is-confidence-low {
   color: #f59e0b;
   border-color: rgba(245, 158, 11, 0.35);
   background: rgba(245, 158, 11, 0.08);

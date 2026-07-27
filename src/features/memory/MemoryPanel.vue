@@ -14,7 +14,7 @@
 
     <!-- 内容区 -->
     <div class="flex-1 overflow-y-auto no-scrollbar px-4">
-      <!-- 注入中 -->
+      <!-- 启用中 -->
       <div class="pt-6">
         <div
           class="flex items-center justify-between mb-3 cursor-pointer px-1"
@@ -22,17 +22,17 @@
         >
           <div class="flex items-center gap-2">
             <div class="w-1 h-4 rounded-full bg-[var(--primary-color)] opacity-60"></div>
-            <span class="text-[13px] font-medium text-[var(--text-secondary)] tracking-widest uppercase">注入中</span>
+            <span class="text-[13px] font-medium text-[var(--text-secondary)] tracking-widest uppercase">启用中</span>
           </div>
           <i class="ph text-[var(--text-secondary)] text-[14px] opacity-50" :class="injectedExpanded ? 'ph-caret-up' : 'ph-caret-down'"></i>
         </div>
 
         <div v-if="injectedExpanded">
           <div class="text-[12px] text-[var(--text-secondary)] opacity-70 px-1 mb-2">
-            会注入到提示词；点左侧圆点可关闭注入（移入“待整理”）。
+            会参与按相关性选择，不代表每轮都注入；点左侧圆点可停用。
           </div>
           <div v-if="injectedMemories.length === 0" class="memory-glass-card rounded-2xl px-4 py-10 text-center text-[var(--text-secondary)] text-[14px] opacity-60">
-            暂无注入记忆
+            暂无启用记忆
           </div>
           <template v-else>
             <MemoryEntry
@@ -50,7 +50,7 @@
         </div>
       </div>
 
-      <!-- 待整理（不注入） -->
+      <!-- 已停用 -->
       <div class="pt-6">
         <div
           class="flex items-center justify-between mb-3 cursor-pointer px-1"
@@ -58,7 +58,7 @@
         >
           <div class="flex items-center gap-2">
             <div class="w-1 h-4 rounded-full bg-slate-400 opacity-50"></div>
-            <span class="text-[13px] font-medium text-[var(--text-secondary)] tracking-widest uppercase">待整理</span>
+            <span class="text-[13px] font-medium text-[var(--text-secondary)] tracking-widest uppercase">已停用</span>
           </div>
           <div class="flex items-center gap-2">
             <button
@@ -74,10 +74,10 @@
 
         <div v-if="pendingExpanded">
           <div class="text-[12px] text-[var(--text-secondary)] opacity-70 px-1 mb-2">
-            不会注入提示词；建议只开启真正长期有用的条目，或点击“清空”批量删除。
+            不会参与记忆注入；建议只启用真正长期有用的条目，或点击“清空”批量删除。
           </div>
           <div v-if="pendingMemories.length === 0" class="memory-glass-card rounded-2xl px-4 py-10 text-center text-[var(--text-secondary)] text-[14px] opacity-60">
-            暂无待整理记忆（不会注入提示词）
+            暂无停用记忆
           </div>
           <template v-else>
             <MemoryEntry
@@ -136,6 +136,21 @@
             />
           </template>
         </div>
+      </div>
+
+      <div class="pt-6 px-1">
+        <button
+          class="w-full rounded-2xl border border-red-500/20 bg-red-500/5 px-4 py-3.5 text-left active:scale-[0.99] transition-all"
+          @click="handleClearAllMemory"
+        >
+          <div class="flex items-center gap-2 text-[14px] font-medium text-red-500">
+            <i class="ph ph-brain text-[17px]"></i>
+            清空全部记忆
+          </div>
+          <div class="mt-1 text-[12px] leading-5 text-[var(--text-secondary)]">
+            只删除记忆、总结和隐藏摘要，不删除任何聊天记录。
+          </div>
+        </button>
       </div>
 
       <!-- 底部留白 -->
@@ -256,7 +271,8 @@ const {
   deleteSummary,
   updateSummary,
   generateShortSummary,
-  rerollSummary
+  rerollSummary,
+  clearContactMemory
 } = useMemory()
 const { showToast } = useToast()
 
@@ -499,8 +515,8 @@ async function clearPendingMemories() {
   if (count <= 0) return
 
   const ok = await showConfirm({
-    title: '清空待整理',
-    message: `确定清空 ${count} 条待整理记忆？（注入中的不会受影响）`,
+    title: '清空已停用',
+    message: `确定清空 ${count} 条已停用记忆？（启用中的不会受影响）`,
     confirmText: '清空',
     destructive: true
   })
@@ -510,6 +526,21 @@ async function clearPendingMemories() {
   contact.value.memory.core = (contact.value.memory.core || []).filter(m => m && m.enabled !== false)
   scheduleSave()
   showToast('已清空')
+}
+
+async function handleClearAllMemory() {
+  if (!contact.value) return
+  const ok = await showConfirm({
+    title: '清空全部记忆',
+    message: '将删除该联系人的核心记忆、长短期总结和隐藏上下文摘要。聊天记录不会删除，AI 仍可从保留的聊天记录中读取相关内容。',
+    confirmText: '清空记忆',
+    destructive: true
+  })
+  if (!ok) return
+
+  clearContactMemory(contact.value)
+  scheduleSave()
+  showToast('记忆已清空')
 }
 
 function closeEditModal() {

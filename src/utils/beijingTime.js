@@ -10,7 +10,7 @@ const VALID_TIME_ZONE_MODES = new Set([
 ])
 
 const timeZonePreference = {
-  mode: TIME_ZONE_MODE_BEIJING,
+  mode: TIME_ZONE_MODE_DEVICE,
   customTimeZone: BEIJING_TIME_ZONE
 }
 
@@ -39,7 +39,9 @@ export function sanitizeIanaTimeZone(value, fallback = BEIJING_TIME_ZONE) {
 
 export function normalizeTimeZoneMode(value) {
   const mode = String(value || '').trim()
-  return VALID_TIME_ZONE_MODES.has(mode) ? mode : TIME_ZONE_MODE_BEIJING
+  // 未设置/非法值回退到设备时区：非 UTC+8 用户的时段判断、主动消息日上限
+  // 等才会在正确的本地时刻重置（报告问题：北京时区硬编码）。
+  return VALID_TIME_ZONE_MODES.has(mode) ? mode : TIME_ZONE_MODE_DEVICE
 }
 
 export function getDeviceTimeZone() {

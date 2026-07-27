@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 
 const props = defineProps({
   name: { type: String, default: '' },
@@ -14,6 +14,20 @@ const emit = defineEmits(['complete'])
 const displayText = ref('')
 let timer = null
 let completedForText = ''
+
+// Characters default to nameColor '#fff' which is invisible on a light glass
+// card — fall back to the rose accent for falsy/white colors.
+const badgeColor = computed(() => {
+  const c = String(props.nameColor || '').trim().toLowerCase()
+  if (!c || c === '#fff' || c === '#ffffff' || c === 'white' || c === 'rgb(255,255,255)' || c === 'rgb(255, 255, 255)') {
+    return '#f472b6'
+  }
+  return props.nameColor
+})
+
+const cssVars = computed(() => ({
+  '--badge-bg': badgeColor.value
+}))
 
 function stopTimer() {
   if (timer) clearInterval(timer)
@@ -64,9 +78,9 @@ onBeforeUnmount(() => stopTimer())
 </script>
 
 <template>
-  <div class="meet-dialog-wrapper">
+  <div class="meet-dialog-wrapper" :style="cssVars">
     <div class="meet-dialog-panel">
-      <!-- Name Tag - VN black nameplate -->
+      <!-- Name Tag - floating colored badge -->
       <div v-if="name" class="meet-name-tag">
         {{ name }}
       </div>
@@ -81,7 +95,7 @@ onBeforeUnmount(() => stopTimer())
       <!-- Continue indicator -->
       <Transition name="fade">
         <div v-if="!isPlaying && displayText" class="meet-next-hint">
-          点击继续
+          <i class="ph ph-caret-double-down"></i>
         </div>
       </Transition>
     </div>
@@ -95,39 +109,47 @@ onBeforeUnmount(() => stopTimer())
   right: 0;
   bottom: 0;
   z-index: 30;
-  padding: 0 5% calc(var(--app-pb, 8px) + 20px);
+  padding: 0 16px calc(var(--app-pb, 8px) + 20px);
   pointer-events: none;
 }
 
 .meet-dialog-panel {
-  max-width: 800px;
+  max-width: 640px;
   margin: 0 auto;
-  min-height: 120px;
-  background: rgba(210, 210, 210, 0.85);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-  border: 3px solid #111;
-  padding: 25px 30px;
+  min-height: 130px;
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 24px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.08),
+    0 2px 8px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  padding: 28px 24px 26px;
   pointer-events: auto;
   position: relative;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
   font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
 }
 
 .meet-name-tag {
   position: absolute;
-  top: -18px;
-  left: 0;
-  background: #000;
+  top: -14px;
+  left: 32px;
+  padding: 6px 20px;
+  border-radius: 20px;
+  background: var(--badge-bg, #f472b6);
   color: #fff;
-  padding: 6px 24px;
   font-weight: 700;
-  font-size: 1rem;
-  letter-spacing: 4px;
+  font-size: 14px;
+  letter-spacing: 0.1em;
   line-height: 1.3;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
   font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
+  z-index: 2;
 }
 
 .meet-dialog-content {
@@ -139,9 +161,9 @@ onBeforeUnmount(() => stopTimer())
 .meet-dialog-content::-webkit-scrollbar { display: none; }
 
 .meet-dialog-text {
-  font-size: 1.1rem;
-  line-height: 1.7;
-  color: #111;
+  font-size: 16.5px;
+  line-height: 1.9;
+  color: rgba(30, 30, 50, 0.88);
   font-weight: 700;
   white-space: pre-wrap;
   word-break: break-word;
@@ -152,22 +174,19 @@ onBeforeUnmount(() => stopTimer())
   display: inline-block;
   width: 2px;
   height: 1.1em;
-  background: #333;
-  margin-left: 4px;
-  vertical-align: middle;
-  animation: cursorBlink 0.8s step-end infinite;
+  background: var(--badge-bg, #f472b6);
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  animation: cursorBlink 1s step-end infinite;
 }
 
 .meet-next-hint {
   position: absolute;
-  right: 20px;
-  bottom: 15px;
-  color: #333;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  animation: hintBlink 1.5s infinite;
-  font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
+  right: 22px;
+  bottom: 12px;
+  color: rgba(30, 30, 50, 0.28);
+  font-size: 18px;
+  animation: hintBounce 2s ease-in-out infinite;
 }
 
 @keyframes cursorBlink {
@@ -175,9 +194,9 @@ onBeforeUnmount(() => stopTimer())
   50% { opacity: 0; }
 }
 
-@keyframes hintBlink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.2; }
+@keyframes hintBounce {
+  0%, 100% { transform: translateY(0); opacity: 0.28; }
+  50% { transform: translateY(5px); opacity: 0.65; }
 }
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }

@@ -146,9 +146,12 @@ describe('appData theme defaults', () => {
     const normalized = normalizeLoadedAppData({
       settings: {
         allowToolCalling: 1,
+        toolCallingMode: 'ALWAYS',
         toolCallingConfig: {
           maxToolRounds: '11',
           showToolLog: 1,
+          showReasoning: 1,
+          notionEnabled: 0,
           mcpBridgeUrl: '  http://localhost:4010  ',
           mcpBridgeEnabled: 'yes',
           mcpServers: [
@@ -163,8 +166,11 @@ describe('appData theme defaults', () => {
     })
 
     expect(normalized.settings.allowToolCalling).toBe(true)
+    expect(normalized.settings.toolCallingMode).toBe('always')
     expect(normalized.settings.toolCallingConfig.maxToolRounds).toBe(8)
     expect(normalized.settings.toolCallingConfig.showToolLog).toBe(true)
+    expect(normalized.settings.toolCallingConfig.showReasoning).toBe(true)
+    expect(normalized.settings.toolCallingConfig.notionEnabled).toBe(false)
     expect(normalized.settings.toolCallingConfig.mcpBridgeUrl).toBe('http://localhost:4010')
     expect(normalized.settings.toolCallingConfig.mcpBridgeEnabled).toBe(true)
     expect(normalized.settings.toolCallingConfig.mcpServers).toEqual([
@@ -174,6 +180,63 @@ describe('appData theme defaults', () => {
     expect(normalized.settings.toolCallingConfig.mcpDirectServers).toEqual([
       { id: 'direct_notion', name: 'Notion', url: 'https://mcp.example.com/notion', apiKey: 'secret', enabled: true }
     ])
+  })
+
+  it('normalizes API provider config fields and preserves old configs as OpenAI-compatible', () => {
+    const normalized = normalizeLoadedAppData({
+      configs: [
+        {
+          id: 'legacy',
+          name: '旧配置',
+          url: 'https://api.openai.com/v1',
+          key: 'secret',
+          model: 'gpt-4o'
+        },
+        {
+          id: 'anthropic',
+          name: 'Claude',
+          url: 'https://api.anthropic.com',
+          key: 'secret',
+          model: 'claude-sonnet',
+          apiFormat: 'anthropic',
+          customHeadersJson: '{"anthropic-beta":"prompt-caching-2024-07-31"}',
+          customBodyJson: '{"metadata":{"source":"kaka"}}',
+          cacheConfig: {
+            enabled: true,
+            systemPrompt: true,
+            minChars: 2048
+          }
+        }
+      ],
+      activeConfigId: 'anthropic'
+    })
+
+    expect(normalized.configs[0]).toMatchObject({
+      id: 'legacy',
+      apiFormat: 'openai-compatible',
+      customHeadersJson: '',
+      customBodyJson: '',
+      autoAdaptParameters: true,
+      removeBodyParams: [],
+      cacheConfig: {
+        enabled: false,
+        systemPrompt: true,
+        ttl: '5m'
+      }
+    })
+    expect(normalized.configs[1]).toMatchObject({
+      id: 'anthropic',
+      apiFormat: 'anthropic-messages',
+      customHeadersJson: '{"anthropic-beta":"prompt-caching-2024-07-31"}',
+      customBodyJson: '{"metadata":{"source":"kaka"}}',
+      autoAdaptParameters: true,
+      removeBodyParams: [],
+      cacheConfig: {
+        enabled: true,
+        systemPrompt: true,
+        ttl: '5m'
+      }
+    })
   })
 
   it('normalizes contact and group MCP server selections', () => {
@@ -307,6 +370,26 @@ describe('appData theme defaults', () => {
 1. 每行一条消息，口语化短句，像真人发微信。
 2. 旁白/心理/动作用 *...* 包裹。
 3. 只输出 {{char}} 的发言，不代替 {{user}} 说话。`
+        }]
+      }]
+    })
+
+    const presetBook = normalized.lorebook.find(book => book.id === 'preset_chat_format_v1')
+    expect(presetBook?.entries?.[0]?.content).toBe(DEFAULT_CHAT_FORMAT_TEMPLATE)
+  })
+
+  it('upgrades the previous chat format default without a user speaker boundary', () => {
+    const normalized = normalizeLoadedAppData({
+      lorebook: [{
+        id: 'preset_chat_format_v1',
+        presetKey: 'chat-format-v1',
+        entries: [{
+          id: 'preset_entry_chat_format_v1',
+          content: `你正在和{{user}}手机聊天
+
+输出规则：
+1. 每行是一条消息，口语化。
+2. 旁白/心理/动作等描写用 *...* 包裹。`
         }]
       }]
     })

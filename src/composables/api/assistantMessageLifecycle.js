@@ -1,5 +1,6 @@
 import { createApiError, createApiFailureResult, trimText } from './errors'
 import { hasImageToken } from './imageTokens'
+import { cleanReasoningContent } from './reasoningContent'
 import { createGiftSnapshot } from '../../data/gifts'
 import { extractQuoteFromText } from '../../utils/messageQuote'
 import {
@@ -9,6 +10,8 @@ import {
 } from '../../features/chat'
 
 const CONTENT_FILTER_NOTICE = '⚠️ 回复被内容安全策略截断。'
+const REASONING_ENTRY_MAX_CHARS = 12000
+const REASONING_TOTAL_MAX_CHARS = 32000
 
 function attachGiftPartSnapshots(message) {
   if (!message || typeof message !== 'object') return
@@ -41,6 +44,16 @@ function attachGiftPartSnapshots(message) {
   delete message.giftPartSnapshots
 }
 
+function touchChatMessage(activeChat, message) {
+  const messages = activeChat?.msgs
+  if (!Array.isArray(messages) || !message) return
+
+  const idx = messages.findIndex(item => item === message || (message.id && item?.id === message.id))
+  if (idx < 0) return
+
+  messages.splice(idx, 1, message)
+}
+
 export function createAssistantMessage(makeMsgId, traceId, extra = {}) {
   const msg = {
     id: makeMsgId(),
@@ -55,13 +68,88 @@ export function createAssistantMessage(makeMsgId, traceId, extra = {}) {
   return msg
 }
 
+export function appendAssistantReasoning(message, content, round = 1) {
+  if (!message || typeof message !== 'object') return false
+
+  const text = String(content || '').trim()
+  if (!text) return false
+
+  const logs = Array.isArray(message.reasoningLogs)
+    ? message.reasoningLogs.filter(item => item && String(item.content || '').trim())
+    : []
+  const normalizedRound = Math.max(1, Number(round || 1) || 1)
+  if (logs.some(item => Number(item.round || 1) === normalizedRound && String(item.content || '').trim() === text)) {
+    return false
+  }
+
+  const usedChars = logs.reduce((total, item) => total + String(item.content || '').length, 0)
+  const availableChars = Math.max(0, REASONING_TOTAL_MAX_CHARS - usedChars)
+  if (availableChars <= 0) return false
+
+  const maxChars = Math.min(REASONING_ENTRY_MAX_CHARS, availableChars)
+  const clipped = text.length > maxChars
+    ? `${text.slice(0, Math.max(1, maxChars - 1)).trimEnd()}…`
+    : text
+
+  logs.push({
+    content: clipped,
+    round: normalizedRound
+  })
+  message.reasoningLogs = logs
+  message.reasoningContent = logs.map(item => String(item.content || '').trim()).filter(Boolean).join('\n\n')
+  return true
+}
+
+export function setAssistantReasoning(message, content, round = 1) {
+  if (!message || typeof message !== 'object') return false
+
+  const text = String(content || '').trim()
+  if (!text) return false
+
+  const normalizedRound = Math.max(1, Number(round || 1) || 1)
+  const logs = Array.isArray(message.reasoningLogs)
+    ? message.reasoningLogs.filter(item => item && String(item.content || '').trim())
+    : []
+  const existingIndex = logs.findIndex(item => Number(item.round || 1) === normalizedRound)
+  const usedByOtherRounds = logs.reduce((total, item, index) => (
+    index === existingIndex ? total : total + String(item.content || '').length
+  ), 0)
+  const availableChars = Math.max(0, REASONING_TOTAL_MAX_CHARS - usedByOtherRounds)
+  if (availableChars <= 0) return false
+
+  const maxChars = Math.min(REASONING_ENTRY_MAX_CHARS, availableChars)
+  const clipped = text.length > maxChars
+    ? `${text.slice(0, Math.max(1, maxChars - 1)).trimEnd()}…`
+    : text
+  if (existingIndex >= 0 && String(logs[existingIndex].content || '') === clipped) return false
+
+  const nextEntry = { content: clipped, round: normalizedRound }
+  if (existingIndex >= 0) {
+    logs.splice(existingIndex, 1, nextEntry)
+  } else {
+    logs.push(nextEntry)
+  }
+  message.reasoningLogs = logs
+  message.reasoningContent = logs.map(item => String(item.content || '').trim()).filter(Boolean).join('\n\n')
+  return true
+}
+
 export function applyReplyMetadata(message, allMessages = [], options = {}) {
   if (!message || typeof message !== 'object') {
     return { quote: null, cleanContent: '' }
   }
 
   const prefixRegex = options.prefixRegex instanceof RegExp ? options.prefixRegex : null
-  let nextContent = typeof message.content === 'string' ? message.content : String(message.content || '')
+  const cleanedReasoning = cleanReasoningContent(message.content)
+  appendAssistantReasoning(message, cleanedReasoning.reasoningContent)
+  let nextContent = cleanedReasoning.text
+  if (cleanedReasoning.removedChars > 0) {
+    message.reasoningFiltered = true
+    message.reasoningFilteredChars = Math.max(
+      Number(message.reasoningFilteredChars || 0) || 0,
+      cleanedReasoning.removedChars
+    )
+  }
   if (prefixRegex) {
     nextContent = nextContent.replace(prefixRegex, '').trim()
   }
@@ -177,6 +265,7 @@ export function finalizeStreamingAssistantReply({
   const interactionOnly = interactionResult.resolvedCount > 0 && !visibleAfterInteraction
   if (interactionOnly) {
     message.hideInChat = true
+    touchChatMessage(activeChat, message)
     return {
       forumOnly: false,
       parsedMomentsResult: null,
@@ -202,6 +291,8 @@ export function finalizeStreamingAssistantReply({
     message,
     streamInfo
   })
+
+  touchChatMessage(activeChat, message)
 
   return {
     forumOnly,

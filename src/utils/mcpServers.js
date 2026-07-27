@@ -1,4 +1,10 @@
+import { MANAGED_NOTION_SERVER_ID, MANAGED_NOTION_SERVER_NAME } from './notionMcp'
+
 function normalizeId(value) {
+  return String(value || '').trim()
+}
+
+function normalizeText(value) {
   return String(value || '').trim()
 }
 
@@ -20,7 +26,7 @@ export function normalizeMcpServerIds(value) {
 
 export function describeMcpServerSelection(serverIds, servers, options = {}) {
   const ids = normalizeMcpServerIds(serverIds)
-  const fallbackLabel = options.emptyLabel || '全部已启用服务器'
+  const fallbackLabel = options.emptyLabel || '不使用 MCP'
   if (ids.length === 0) return fallbackLabel
 
   const serverMap = new Map(
@@ -33,29 +39,69 @@ export function describeMcpServerSelection(serverIds, servers, options = {}) {
   return names.join('、') || fallbackLabel
 }
 
+function pushUniqueServer(target, seenIds, server, source) {
+  const id = normalizeId(server?.id)
+  if (!id || seenIds.has(id)) return
+
+  seenIds.add(id)
+  target.push({
+    ...server,
+    id,
+    name: normalizeText(server?.name) || id,
+    source
+  })
+}
+
+export function listAvailableMcpServers(toolCallingConfig) {
+  const config = toolCallingConfig && typeof toolCallingConfig === 'object'
+    ? toolCallingConfig
+    : {}
+  const servers = []
+  const seenIds = new Set()
+
+  if (config.notionEnabled === true) {
+    pushUniqueServer(servers, seenIds, {
+      id: MANAGED_NOTION_SERVER_ID,
+      name: MANAGED_NOTION_SERVER_NAME,
+      transport: 'http',
+      enabled: true,
+      managed: true
+    }, 'notion')
+  }
+
+  ;(Array.isArray(config.mcpDirectServers) ? config.mcpDirectServers : []).forEach((server) => {
+    pushUniqueServer(servers, seenIds, {
+      ...server,
+      transport: 'http'
+    }, 'direct')
+  })
+
+  if (config.mcpBridgeEnabled === true) {
+    ;(Array.isArray(config.mcpServers) ? config.mcpServers : []).forEach((server) => {
+      pushUniqueServer(servers, seenIds, server, 'bridge')
+    })
+  }
+
+  return servers
+}
+
 export function resolveDirectMcpServerIds(contact) {
-  const ids = normalizeMcpServerIds(contact?.mcpServerIds)
-  return ids.length > 0 ? ids : undefined
+  return normalizeMcpServerIds(contact?.mcpServerIds)
 }
 
 export function resolveGroupMultiMcpServerIds(group, member) {
   const memberIds = normalizeMcpServerIds(member?.mcpServerIds)
   if (memberIds.length > 0) return memberIds
 
-  const groupIds = normalizeMcpServerIds(group?.mcpServerIds)
-  return groupIds.length > 0 ? groupIds : undefined
+  return normalizeMcpServerIds(group?.mcpServerIds)
 }
 
 export function resolveGroupSingleMcpServerIds(group) {
   const mergedIds = new Set(normalizeMcpServerIds(group?.mcpServerIds))
-  let hasExplicitSelection = mergedIds.size > 0
 
   ;(Array.isArray(group?.members) ? group.members : []).forEach((member) => {
-    const memberIds = normalizeMcpServerIds(member?.mcpServerIds)
-    if (memberIds.length === 0) return
-    hasExplicitSelection = true
-    memberIds.forEach((id) => mergedIds.add(id))
+    normalizeMcpServerIds(member?.mcpServerIds).forEach((id) => mergedIds.add(id))
   })
 
-  return hasExplicitSelection ? [...mergedIds] : undefined
+  return [...mergedIds]
 }

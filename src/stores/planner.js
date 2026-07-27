@@ -91,6 +91,10 @@ export const usePlannerStore = defineStore('planner', () => {
       weather: data.weather || '',
       content: data.content || '',
       images: data.images || [],
+      source: data.source || 'manual',
+      sourceChatId: data.sourceChatId || '',
+      sourceContactId: data.sourceContactId || '',
+      sourceMessageId: data.sourceMessageId || '',
       shareWithAI: data.shareWithAI ?? true,
       sharedWithContacts: data.sharedWithContacts || [],
       injectToChat: data.injectToChat ?? true,
@@ -360,7 +364,23 @@ export const usePlannerStore = defineStore('planner', () => {
         dueTime: e.dueTime || e.startTime || ''
       }))
     }
-    if (Array.isArray(d.diaryEntries)) diaryEntries.value = d.diaryEntries
+    if (Array.isArray(d.diaryEntries)) {
+      diaryEntries.value = d.diaryEntries.map(entry => ({
+        ...entry,
+        mood: entry?.mood || '',
+        weather: entry?.weather || '',
+        content: entry?.content || '',
+        images: Array.isArray(entry?.images) ? entry.images : [],
+        source: entry?.source || 'manual',
+        sourceChatId: entry?.sourceChatId || '',
+        sourceContactId: entry?.sourceContactId || '',
+        sourceMessageId: entry?.sourceMessageId || '',
+        shareWithAI: entry?.shareWithAI ?? true,
+        sharedWithContacts: Array.isArray(entry?.sharedWithContacts) ? entry.sharedWithContacts : [],
+        injectToChat: entry?.injectToChat ?? true,
+        aiReplies: Array.isArray(entry?.aiReplies) ? entry.aiReplies : []
+      }))
+    }
     if (Array.isArray(d.categories) && d.categories.length > 0) {
       categories.value = d.categories
     }

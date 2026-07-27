@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { getCurrentInstance, onBeforeUnmount, ref } from 'vue'
 import { useSoundEffects } from '../../../composables/useSoundEffects'
 
 export function useChatMessageActions({
@@ -22,6 +22,7 @@ export function useChatMessageActions({
   processAssistantFavoriteTokens,
   processAssistantPlannerActions,
   processAssistantImageTokens,
+  rerollImageMessage,
   rebuildMessageContent,
   scheduleSave,
   scrollToBottom,
@@ -31,17 +32,9 @@ export function useChatMessageActions({
 }) {
   const inputText = ref('')
   const editingPartIndex = ref(null)
+  // 编辑弹窗的草稿，独立于主输入框，避免打开编辑时覆盖正在输入的内容
+  const editDraft = ref('')
   const soundEffects = useSoundEffects()
-
-  const editPreview = computed(() => {
-    if (!store.editingMsgId || !store.activeChat) return ''
-    // 如果有 partIndex，显示当前气泡的内容而不是整条消息
-    if (editingPartIndex.value !== null) {
-      return inputText.value || ''
-    }
-    const msg = store.activeChat.msgs.find(m => m.id === store.editingMsgId)
-    return msg?.content || ''
-  })
 
   function cancelReply() {
     store.replyingToId = null
@@ -51,22 +44,127 @@ export function useChatMessageActions({
   function cancelEdit() {
     store.editingMsgId = null
     editingPartIndex.value = null
-    inputText.value = ''
+    editDraft.value = ''
   }
 
-  async function requestAssistantReply() {
-    if (!store.activeChat) return
-    const contact = store.activeChat
-    const previousMsgIds = new Set((contact.msgs || []).map(msg => msg?.id))
-    let result = null
-    if (isGroupChat.value) {
-      if (store.activeChat.groupMode === 'multi' && !store.selectedMemberId) {
-        showToast('请先选择发言成员')
+  // 编辑状态存在全局 store，而草稿/partIndex 是组件级的；
+  // 离开聊天页时必须一并清掉，否则重进任意聊天会弹出空白编辑弹窗
+  if (getCurrentInstance()) {
+    onBeforeUnmount(() => {
+      cancelEdit()
+    })
+  }
+
+  function saveEdit(text) {
+    const txt = String(text ?? '').trim()
+    if (!txt || !store.editingMsgId || !store.activeChat) return
+    const msg = store.activeChat.msgs.find(m => m.id === store.editingMsgId)
+    if (msg) {
+      if (editingPartIndex.value !== null && editingPartIndex.value !== undefined) {
+        const baseContent = msg.displayContent != null ? msg.displayContent : msg.content
+        const parts = parseMessageContent(String(baseContent ?? ''), true)
+        if (editingPartIndex.value < parts.length) {
+          const part = parts[editingPartIndex.value]
+          if (part.type === 'narration') {
+            part.content = txt
+          } else if (part.type === 'sticker') {
+            const stickerMatch = txt.match(/^(?:\(|（|\[|【)\s*(?:stickers?|sticker|表情包|贴纸)\s*[:：]\s*([^\)\]）】]+?)\s*(?:\)|）|\]|】)$/i)
+            if (stickerMatch) {
+              part.name = stickerMatch[1].trim()
+            } else {
+              part.type = 'normal'
+              part.content = txt
+              delete part.name
+            }
+          } else if (part.type === 'mockImage') {
+            const mockMatch = txt.match(/^(?:\(|（|\[|【)\s*(?:camera|相机|mockimage|mock|模拟图片)\s*[:：]\s*([^\)\]）】]+?)\s*(?:\)|）|\]|】)$/i)
+            if (mockMatch) {
+              part.text = mockMatch[1].trim()
+            } else {
+              part.text = txt
+            }
+          } else {
+            part.content = txt
+          }
+          const newContent = rebuildMessageContent(parts)
+          msg.content = newContent
+          if (msg.displayContent != null) {
+            msg.displayContent = newContent
+          }
+          delete msg.giftPartSnapshots
+        } else {
+          msg.content = txt
+          if (msg.displayContent != null) {
+            msg.displayContent = txt
+          }
+          delete msg.giftPartSnapshots
+        }
+      } else {
+        msg.content = txt
+        if (msg.isMockImage) {
+          msg.mockImageText = txt
+        }
+        if (msg.displayContent != null) {
+          msg.displayContent = txt
+        }
+        delete msg.giftPartSnapshots
+      }
+    }
+    cancelEdit()
+    invalidateRoundVectors?.(store.activeChat)
+    scheduleSave()
+  }
+
+  function setAssistantPendingState() {
+    if (!store?.ui) return
+    store.ui.isTyping = true
+    store.ui.isThinking = false
+  }
+
+  function clearAssistantPendingState() {
+    if (!store?.ui) return
+    store.ui.isTyping = false
+    store.ui.isThinking = false
+  }
+
+  function waitForNextPaint() {
+    return new Promise((resolve) => {
+      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(() => resolve())
         return
       }
-      result = await callGroupAPI(() => scrollToBottom())
-    } else {
-      result = await callAPI(() => scrollToBottom())
+      setTimeout(resolve, 0)
+    })
+  }
+
+  async function requestAssistantReply(options = {}) {
+    if (!store.activeChat) return
+    const pendingStateAlreadySet = options.pendingStateAlreadySet === true
+    const contact = store.activeChat
+    if (!pendingStateAlreadySet) {
+      setAssistantPendingState()
+    }
+    const previousMsgIds = new Set((contact.msgs || []).map(msg => msg?.id))
+    let result = null
+
+    try {
+      if (isGroupChat.value) {
+        if (store.activeChat.groupMode === 'multi' && !store.selectedMemberId) {
+          clearAssistantPendingState()
+          showToast('请先选择发言成员')
+          return
+        }
+        result = await callGroupAPI(() => scrollToBottom())
+      } else {
+        result = await callAPI(() => scrollToBottom())
+      }
+    } catch (error) {
+      clearAssistantPendingState()
+      throw error
+    }
+
+    if (result?.success === false) {
+      clearAssistantPendingState()
     }
 
     if (result && result.success === false && result.error) {
@@ -122,71 +220,24 @@ export function useChatMessageActions({
     scheduleSave()
   }
 
+  function isSingleImageRegenTarget(message) {
+    if (!message || message.role === 'user') return false
+    const imageSource = String(message.imageSource || '').trim().toLowerCase()
+    return !!(
+      message.isImage ||
+      message.isImageRendering ||
+      message.generatedByAIImage === true ||
+      imageSource === 'ai-generated' ||
+      imageSource === 'ai_generated' ||
+      (typeof message.imagePrompt === 'string' && message.imagePrompt.trim()) ||
+      (typeof message.imageSceneTags === 'string' && message.imageSceneTags.trim())
+    )
+  }
+
   async function sendMessage() {
     const txt = inputText.value.trim()
     closePlusMenu()
     if (!store.activeChat) return
-
-    if (store.editingMsgId) {
-      if (!txt) return
-      const msg = store.activeChat.msgs.find(m => m.id === store.editingMsgId)
-      if (msg) {
-        if (editingPartIndex.value !== null && editingPartIndex.value !== undefined) {
-          const baseContent = msg.displayContent != null ? msg.displayContent : msg.content
-          const parts = parseMessageContent(String(baseContent ?? ''), true)
-          if (editingPartIndex.value < parts.length) {
-            const part = parts[editingPartIndex.value]
-            if (part.type === 'narration') {
-              part.content = txt
-            } else if (part.type === 'sticker') {
-              const stickerMatch = txt.match(/^(?:\(|（|\[|【)\s*(?:stickers?|sticker|表情包|贴纸)\s*[:：]\s*([^\)\]）】]+?)\s*(?:\)|）|\]|】)$/i)
-              if (stickerMatch) {
-                part.name = stickerMatch[1].trim()
-              } else {
-                part.type = 'normal'
-                part.content = txt
-                delete part.name
-              }
-            } else if (part.type === 'mockImage') {
-              const mockMatch = txt.match(/^(?:\(|（|\[|【)\s*(?:camera|相机|mockimage|mock|模拟图片)\s*[:：]\s*([^\)\]）】]+?)\s*(?:\)|）|\]|】)$/i)
-              if (mockMatch) {
-                part.text = mockMatch[1].trim()
-              } else {
-                part.text = txt
-              }
-            } else {
-              part.content = txt
-            }
-            const newContent = rebuildMessageContent(parts)
-            msg.content = newContent
-            if (msg.displayContent != null) {
-              msg.displayContent = newContent
-            }
-            delete msg.giftPartSnapshots
-          } else {
-            msg.content = txt
-            if (msg.displayContent != null) {
-              msg.displayContent = txt
-            }
-            delete msg.giftPartSnapshots
-          }
-        } else {
-          msg.content = txt
-          if (msg.isMockImage) {
-            msg.mockImageText = txt
-          }
-          if (msg.displayContent != null) {
-            msg.displayContent = txt
-          }
-          delete msg.giftPartSnapshots
-        }
-      }
-      inputText.value = ''
-      cancelEdit()
-      invalidateRoundVectors?.(store.activeChat)
-      scheduleSave()
-      return
-    }
 
     const hasImages = store.pendingImages.length > 0
 
@@ -238,8 +289,10 @@ export function useChatMessageActions({
       scheduleSaveForInputFlow()
       soundEffects.playEvent('messageSend')
     } else {
-      // 空发送直接触发AI回复
-      await requestAssistantReply()
+      // 先让按钮按下态和打字指示器有机会绘制，再启动较重的 AI 前置准备。
+      setAssistantPendingState()
+      await waitForNextPaint()
+      await requestAssistantReply({ pendingStateAlreadySet: true })
     }
   }
 
@@ -259,19 +312,36 @@ export function useChatMessageActions({
   function handleEdit() {
     store.editingMsgId = contextMenuMsgId.value
     editingPartIndex.value = contextMenuPartIndex.value
-    inputText.value = contextMenuContent.value || ''
+    editDraft.value = contextMenuContent.value || ''
     hideContextMenu()
   }
 
   async function handleRegen() {
     const idx = store.activeChat.msgs.findIndex(m => m.id === contextMenuMsgId.value)
-    if (idx !== -1) {
-      store.activeChat.msgs = store.activeChat.msgs.slice(0, idx)
-      invalidateRoundVectors?.(store.activeChat)
-      scheduleSave()
-      await requestAssistantReply()
+    if (idx === -1) {
+      hideContextMenu()
+      return
     }
+
     hideContextMenu()
+    const targetMessage = store.activeChat.msgs[idx]
+
+    if (isSingleImageRegenTarget(targetMessage)) {
+      const rerolled = await rerollImageMessage?.(store.activeChat, contextMenuMsgId.value)
+      if (rerolled) {
+        scheduleSave()
+      } else {
+        showToast('这张图片缺少重roll信息，暂时无法单独重试')
+      }
+      return
+    }
+
+    store.activeChat.msgs = store.activeChat.msgs.slice(0, idx)
+    invalidateRoundVectors?.(store.activeChat)
+    scheduleSave()
+    setAssistantPendingState()
+    await waitForNextPaint()
+    await requestAssistantReply({ pendingStateAlreadySet: true })
   }
 
   async function handleDelete() {
@@ -310,7 +380,7 @@ export function useChatMessageActions({
   return {
     cancelEdit,
     cancelReply,
-    editPreview,
+    editDraft,
     editingPartIndex,
     handleCopy,
     handleDelete,
@@ -320,6 +390,7 @@ export function useChatMessageActions({
     handleReply,
     inputText,
     requestAssistantReply,
+    saveEdit,
     sendMessage
   }
 }

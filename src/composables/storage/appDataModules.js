@@ -2,7 +2,7 @@
 
 /** @typedef {import('./storageContracts').StorageAppData} StorageAppData */
 
-import { sanitizeMiniMaxGroupId } from '../../utils/minimaxConfig'
+import { sanitizeMiniMaxGroupId, sanitizeMiniMaxVoiceId } from '../../utils/minimaxConfig'
 import {
   normalizeStickerGroups,
   normalizeStickers,
@@ -27,6 +27,8 @@ import {
 } from '../../utils/themeDefaults'
 import { normalizeCloudSyncConfig } from '../../utils/cloudSyncConfig'
 import { inferSTTProviderFromUrl, normalizeSTTProvider } from '../../utils/sttProviders'
+import { normalizeImageGenProvider } from '../imageGen/providers'
+import { normalizeProviderConfig } from '../api/providerFormats'
 import { ensureLorebookDefaults } from './lorebookDefaults'
 
 /**
@@ -63,7 +65,18 @@ function createDefaultConfigSnapshot() {
     key: '',
     model: 'gpt-3.5-turbo',
     temperature: null,
-    maxTokens: null
+    maxTokens: null,
+    reasoningEffort: '',
+    apiFormat: 'openai-compatible',
+    customHeadersJson: '',
+    customBodyJson: '',
+    autoAdaptParameters: true,
+    removeBodyParams: [],
+    cacheConfig: {
+      enabled: false,
+      systemPrompt: true,
+      ttl: '5m'
+    }
   }
 }
 
@@ -108,6 +121,12 @@ function normalizeOptionalNumber(value, min, max, integer = false) {
   if (!Number.isFinite(numericValue)) return null
   if (numericValue < min || numericValue > max) return null
   return integer ? Math.floor(numericValue) : numericValue
+}
+
+function normalizeReasoningEffort(value) {
+  const effort = String(value || '').trim().toLowerCase()
+  if (effort === 'minimal' || effort === 'low' || effort === 'medium' || effort === 'high') return effort
+  return ''
 }
 
 function normalizeUrlLikeString(value) {
@@ -187,6 +206,12 @@ function normalizeToolCallingConfig(rawConfig, fallbackConfig) {
     showToolLog: Object.prototype.hasOwnProperty.call(raw, 'showToolLog')
       ? !!raw.showToolLog
       : !!fallback.showToolLog,
+    showReasoning: Object.prototype.hasOwnProperty.call(raw, 'showReasoning')
+      ? !!raw.showReasoning
+      : !!fallback.showReasoning,
+    notionEnabled: Object.prototype.hasOwnProperty.call(raw, 'notionEnabled')
+      ? !!raw.notionEnabled
+      : fallback.notionEnabled !== false,
     mcpBridgeUrl: normalizeUrlLikeString(raw.mcpBridgeUrl || fallback.mcpBridgeUrl || ''),
     mcpBridgeEnabled: Object.prototype.hasOwnProperty.call(raw, 'mcpBridgeEnabled')
       ? !!raw.mcpBridgeEnabled
@@ -211,7 +236,7 @@ function sanitizeVoiceTtsConfig(rawConfig, fallbackConfig) {
   const minimaxEndpoint = normalizeUrlLikeString(raw.minimaxEndpoint || fallback.minimaxEndpoint || '')
   const minimaxApiKey = String(raw.minimaxApiKey ?? fallback.minimaxApiKey ?? '').trim()
   const minimaxGroupId = sanitizeMiniMaxGroupId(raw.minimaxGroupId ?? fallback.minimaxGroupId ?? '', minimaxEndpoint)
-  const minimaxVoiceId = String(raw.minimaxVoiceId ?? fallback.minimaxVoiceId ?? '').trim()
+  const minimaxVoiceId = sanitizeMiniMaxVoiceId(raw.minimaxVoiceId ?? fallback.minimaxVoiceId ?? '')
   const minimaxModel = String(raw.minimaxModel ?? fallback.minimaxModel ?? '').trim()
     || String(fallback.minimaxModel || 'speech-02-turbo')
 
@@ -295,7 +320,7 @@ export const APP_DATA_MODULES = [
       normalized.configs = normalized.configs.map((cfg, index) => {
         const next = (cfg && typeof cfg === 'object' && !Array.isArray(cfg)) ? { ...cfg } : {}
         const id = String(next.id || (index === 0 ? defaultConfig.id : `cfg_${Date.now()}_${index}`))
-        return {
+        return normalizeProviderConfig({
           ...next,
           id,
           name: typeof next.name === 'string' ? next.name : (index === 0 ? defaultConfig.name : ''),
@@ -303,8 +328,9 @@ export const APP_DATA_MODULES = [
           key: typeof next.key === 'string' ? next.key : '',
           model: typeof next.model === 'string' ? next.model : defaultConfig.model,
           temperature: normalizeOptionalNumber(next.temperature, 0, 2),
-          maxTokens: normalizeOptionalNumber(next.maxTokens, 1, 32768, true)
-        }
+          maxTokens: normalizeOptionalNumber(next.maxTokens, 1, 32768, true),
+          reasoningEffort: normalizeReasoningEffort(next.reasoningEffort)
+        })
       })
 
       if (!normalized.activeConfigId || !normalized.configs.find(config => config.id === normalized.activeConfigId)) {
@@ -470,6 +496,10 @@ export const APP_DATA_MODULES = [
       }
       if (normalized.vnImageGenConfig !== null && normalized.vnImageGenConfig !== undefined && (typeof normalized.vnImageGenConfig !== 'object' || Array.isArray(normalized.vnImageGenConfig))) {
         normalized.vnImageGenConfig = null
+      }
+      if (normalized.vnImageGenConfig && typeof normalized.vnImageGenConfig === 'object' && !Array.isArray(normalized.vnImageGenConfig)) {
+        const provider = normalizeImageGenProvider(normalized.vnImageGenConfig.provider)
+        if (provider) normalized.vnImageGenConfig.provider = provider
       }
       if (normalized.vnTtsConfig !== null && normalized.vnTtsConfig !== undefined && (typeof normalized.vnTtsConfig !== 'object' || Array.isArray(normalized.vnTtsConfig))) {
         normalized.vnTtsConfig = null
@@ -691,6 +721,7 @@ function finalizeNormalizedContacts(normalized) {
     next.lastMsgSenderName = typeof contact.lastMsgSenderName === 'string' ? contact.lastMsgSenderName : ''
     next.lastMsgTime = Number(contact.lastMsgTime || 0) || 0
     next.msgCount = Math.max(0, Number(contact.msgCount || (Array.isArray(contact.msgs) ? contact.msgs.length : 0)) || 0)
+    next.minimaxVoiceId = sanitizeMiniMaxVoiceId(contact.minimaxVoiceId || '')
 
     if (Array.isArray(contact.members)) {
       next.members = contact.members.map((member) => {

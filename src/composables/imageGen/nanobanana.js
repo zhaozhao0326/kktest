@@ -1,8 +1,9 @@
 import { createFetchControl, isAbortError } from './fetchControl'
+import { prepareApiKey } from '../../utils/httpHeaders'
 
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
 const DEFAULT_OPENAI_COMPAT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai'
-const DEFAULT_NANOBANANA_MODEL = 'gemini-2.5-flash-image-preview'
+const DEFAULT_NANOBANANA_MODEL = 'gemini-2.5-flash-image'
 
 const MODE_GEMINI = 'gemini'
 const MODE_OPENAI_CHAT = 'openai_chat'
@@ -21,9 +22,10 @@ const GEMINI_IMAGE_SIZES = Object.freeze(['512px', '1K', '2K', '4K'])
 export async function generateNanoBanana(prompt, config = {}, options = {}) {
   const mode = normalizeNanoBananaMode(config?.apiMode || config?.mode || config?.transport)
   const keyMode = normalizeApiKeyMode(config?.apiKeyMode, mode)
-  const apiKey = normalizeText(config?.apiKey)
-  if (keyMode !== 'none' && !apiKey) {
-    throw new Error('NanoBanana API Key 未设置')
+  const apiKey = keyMode === 'none' ? '' : prepareApiKey(config?.apiKey, 'NanoBanana API Key')
+  const hasCustomEndpoint = !!normalizeText(config?.endpoint || config?.baseUrl || config?.url)
+  if (keyMode !== 'none' && !apiKey && !hasCustomEndpoint) {
+    throw new Error('NanoBanana API Key 未设置；使用第三方/反代时请先填写接口地址，API Key 可留空')
   }
   const modelId = resolveNanoBananaModel(config?.model)
 
@@ -72,9 +74,13 @@ function resolveNanoBananaModel(value) {
   if (!raw) return DEFAULT_NANOBANANA_MODEL
 
   const key = raw.toLowerCase().replace(/[\s_]+/g, '-')
-  if (key === 'nanobanana' || key === 'nano-banana') return DEFAULT_NANOBANANA_MODEL
+  if (
+    key === 'nanobanana' ||
+    key === 'nano-banana' ||
+    key === 'gemini-2.5-flash-image-preview'
+  ) return DEFAULT_NANOBANANA_MODEL
   if (key === 'nanobanana-2' || key === 'nano-banana-2' || key === 'nanobanana2' || key === 'nb-2') {
-    return 'gemini-2.5-flash-image-preview'
+    return DEFAULT_NANOBANANA_MODEL
   }
   if (key === 'nanobanana-pro' || key === 'nano-banana-pro' || key === 'nb-pro') {
     return 'gemini-3-pro-image-preview'
@@ -259,14 +265,16 @@ function buildRequestHeaders(config, mode, apiKey, includeContentType = true) {
   const headers = includeContentType ? { 'Content-Type': 'application/json' } : {}
   const keyMode = normalizeApiKeyMode(config?.apiKeyMode, mode)
   if (keyMode === 'none') return { headers, keyMode }
-  if (keyMode === 'x-goog-api-key') headers['x-goog-api-key'] = apiKey
-  else if (keyMode === 'x-api-key') headers['x-api-key'] = apiKey
-  else if (keyMode === 'bearer') headers.Authorization = 'Bearer ' + apiKey
+  const token = prepareApiKey(apiKey, 'NanoBanana API Key')
+  if (!token) return { headers, keyMode }
+  if (keyMode === 'x-goog-api-key') headers['x-goog-api-key'] = token
+  else if (keyMode === 'x-api-key') headers['x-api-key'] = token
+  else if (keyMode === 'bearer') headers.Authorization = 'Bearer ' + token
   return { headers, keyMode }
 }
 
 function appendApiKeyToUrl(url, apiKey, keyMode) {
-  if (keyMode !== 'query') return url
+  if (keyMode !== 'query' || !apiKey) return url
   try {
     const resolved = new URL(url, 'https://dummy.local')
     if (!resolved.searchParams.has('key')) resolved.searchParams.set('key', apiKey)
@@ -296,13 +304,13 @@ function parseJsonObject(value) {
   return null
 }
 
-function buildGeminiImageConfig(config, options, modelId) {
+function buildGeminiResponseFormat(config, options, modelId) {
   const aspectRatio = resolveAspectRatio(config, options, modelId)
   const imageSize = resolveImageSize(config, options, modelId)
-  const imageConfig = {}
-  if (aspectRatio) imageConfig.aspectRatio = aspectRatio
-  if (imageSize) imageConfig.imageSize = imageSize
-  return Object.keys(imageConfig).length > 0 ? imageConfig : null
+  const image = {}
+  if (aspectRatio) image.aspectRatio = aspectRatio
+  if (imageSize) image.imageSize = imageSize
+  return Object.keys(image).length > 0 ? { image } : null
 }
 
 function extractDataUrlFromText(text) {
@@ -441,8 +449,8 @@ async function requestGeminiNative(prompt, modelId, config, options, apiKey, sig
     responseModalities: normalizeResponseModalities(config?.responseModalities),
     temperature: normalizeNumericTemperature(options?.temperature ?? config?.temperature, 1.0)
   }
-  const imageConfig = buildGeminiImageConfig(config, options, modelId)
-  if (imageConfig) generationConfig.imageConfig = imageConfig
+  const responseFormat = buildGeminiResponseFormat(config, options, modelId)
+  if (responseFormat) generationConfig.responseFormat = responseFormat
 
   const { headers, keyMode } = buildRequestHeaders(config, MODE_GEMINI, apiKey, true)
   const rawUrl = resolveGeminiRequestUrl(modelId, config)
@@ -569,12 +577,21 @@ function mergeOpenAIExtraBody(config = {}, options = {}, modelId = '') {
   const aspectRatio = resolveAspectRatio(config, options, modelId)
   const imageSize = resolveImageSize(config, options, modelId)
   if (aspectRatio || imageSize) {
-    const imageConfig = (google.image_config && typeof google.image_config === 'object')
-      ? { ...google.image_config }
+    const responseFormat = (google.response_format && typeof google.response_format === 'object')
+      ? { ...google.response_format }
       : {}
-    if (aspectRatio) imageConfig.aspect_ratio = aspectRatio
-    if (imageSize) imageConfig.image_size = imageSize
-    google.image_config = imageConfig
+    const image = (responseFormat.image && typeof responseFormat.image === 'object')
+      ? { ...responseFormat.image }
+      : (
+          google.image_config && typeof google.image_config === 'object'
+            ? { ...google.image_config }
+            : {}
+        )
+    if (aspectRatio) image.aspect_ratio = aspectRatio
+    if (imageSize) image.image_size = imageSize
+    responseFormat.image = image
+    google.response_format = responseFormat
+    delete google.image_config
   }
 
   return {

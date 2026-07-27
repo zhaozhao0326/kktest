@@ -1,53 +1,38 @@
-import { consumeChatCompletionsStream } from './stream'
-import { buildChatCompletionPayload } from './chatCompletions'
-import { fetchOpenAICompat, readOpenAICompatError } from './openaiCompat'
+import {
+  buildProviderChatPayload,
+  buildProviderNonStreamingPayload,
+  consumeProviderChatStream,
+  extractProviderNonStreamText,
+  fetchProviderChat,
+  readProviderChatError,
+  summarizeProviderRequestPayload
+} from './providerRequest'
 import { estimatePromptBreakdownFromMessages, estimateUsageFromMessages, recordUsage } from './usage'
-import { createAssistantMessage } from './assistantMessageLifecycle'
+import { appendAssistantReasoning, createAssistantMessage, setAssistantReasoning } from './assistantMessageLifecycle'
+import { createStreamValueBatcher } from './responseHelpers'
+import { addDebugLog } from '../useDebugLog'
 
-function extractTextFromContent(content) {
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content.map(part => {
-      if (typeof part === 'string') return part
-      if (typeof part?.text === 'string') return part.text
-      return ''
-    }).join('')
+function summarizeChatPayload(payload, cfg, messages, traceId) {
+  const body = summarizeProviderRequestPayload(payload)
+  return {
+    traceId,
+    model: cfg?.model || '',
+    apiFormat: cfg?.apiFormat || 'openai-compatible',
+    baseUrl: cfg?.url || '',
+    messageCount: Array.isArray(messages) ? messages.length : 0,
+    stream: body?.stream === true,
+    maxTokens: body?.max_tokens ?? body?.maxOutputTokens ?? body?.generationConfig?.maxOutputTokens ?? null,
+    temperature: body?.temperature ?? body?.generationConfig?.temperature ?? null,
+    reasoningEffort: body?.reasoning_effort || '',
+    toolsCount: Array.isArray(body?.tools) ? body.tools.length : 0
   }
-  return ''
-}
-
-function extractNonStreamMessageText(payload) {
-  if (!payload || typeof payload !== 'object') return ''
-
-  const choice = payload?.choices?.[0]
-  const messageText = extractTextFromContent(choice?.message?.content)
-  if (messageText) return messageText
-
-  const deltaText = extractTextFromContent(choice?.delta?.content)
-  if (deltaText) return deltaText
-
-  if (typeof payload.output_text === 'string') return payload.output_text
-  if (typeof payload.text === 'string') return payload.text
-  return ''
-}
-
-function buildNonStreamingPayload(payload) {
-  if (!payload || typeof payload !== 'object') {
-    return { stream: false }
-  }
-  const nextPayload = { ...payload, stream: false }
-  delete nextPayload.stream_options
-  return nextPayload
 }
 
 async function recoverAssistantReplyWithoutStreaming({ cfg, payload }) {
-  const { request, response } = await fetchOpenAICompat(cfg.url, {
-    apiKey: cfg.key,
-    body: buildNonStreamingPayload(payload)
-  })
+  const { request, response } = await fetchProviderChat(cfg, buildProviderNonStreamingPayload(cfg, payload))
 
   if (!response.ok) {
-    throw new Error(await readOpenAICompatError(response))
+    throw new Error(await readProviderChatError(cfg, response))
   }
 
   let data = null
@@ -69,9 +54,9 @@ async function recoverAssistantReplyWithoutStreaming({ cfg, payload }) {
   }
 
   return {
-    content: extractNonStreamMessageText(data).trim(),
-    finishReason: data?.choices?.[0]?.finish_reason || null,
-    usage: data?.usage || null,
+    content: extractProviderNonStreamText(cfg, data).trim(),
+    finishReason: data?.choices?.[0]?.finish_reason || data?.stop_reason || data?.candidates?.[0]?.finishReason || null,
+    usage: data?.usage || data?.usageMetadata || null,
     url: request.targetUrl
   }
 }
@@ -100,11 +85,14 @@ export async function executeStreamedAssistantRequest({
   setTyping,
   setThinking
 }) {
-  const payload = buildChatCompletionPayload(cfg, messages)
-  const { request, response: res } = await fetchOpenAICompat(cfg.url, {
-    apiKey: cfg.key,
-    body: payload
+  const payload = buildProviderChatPayload(cfg, messages)
+  addDebugLog({
+    level: 'info',
+    scope: 'api.chat',
+    message: '发送聊天请求',
+    details: summarizeChatPayload(payload, cfg, messages, traceId)
   })
+  const { request, response: res } = await fetchProviderChat(cfg, payload)
   const url = request.targetUrl
 
   if (typeof setTyping === 'function') {
@@ -115,25 +103,41 @@ export async function executeStreamedAssistantRequest({
   }
 
   if (!res.ok) {
-    throw new Error(await readOpenAICompatError(res))
+    throw new Error(await readProviderChatError(cfg, res))
   }
 
   const newMsg = createAssistantMessage(makeMsgId, traceId, assistantMessage)
   activeChat.msgs.push(newMsg)
   const streamMsg = activeChat.msgs[activeChat.msgs.length - 1]
-  const streamBatcher = createStreamChunkBatcher(streamMsg, onChunk)
+  const streamBatcher = createStreamChunkBatcher(streamMsg, onChunk, activeChat)
+  const reasoningBatcher = createStreamValueBatcher(content => {
+    if (!setAssistantReasoning(streamMsg, content, 1)) return
+    streamMsg.reasoningStreaming = true
+    streamMsg.reasoningStreamingRound = 1
+    onChunk?.(streamMsg.displayContent != null ? streamMsg.displayContent : streamMsg.content)
+  })
 
   let firstDeltaReceived = false
-  let streamInfo = await consumeChatCompletionsStream(res, delta => {
+  let streamInfo = await consumeProviderChatStream(cfg, res, delta => {
     if (!firstDeltaReceived) {
       firstDeltaReceived = true
       if (typeof setThinking === 'function') setThinking(false)
     }
     streamBatcher.push(delta)
+  }, {
+    onReasoningDelta(content) {
+      reasoningBatcher.push(content)
+    }
   })
 
   if (streamInfo?.emittedChars === 0 && !String(streamMsg.content || '').trim()) {
     if (typeof setThinking === 'function') setThinking(false)
+    addDebugLog({
+      level: 'warn',
+      scope: 'api.chat',
+      message: '流式响应没有可见文本，尝试非流式恢复',
+      details: { traceId, model: cfg?.model || '', url }
+    })
     const fallback = await recoverAssistantReplyWithoutStreaming({
       cfg,
       payload
@@ -151,10 +155,41 @@ export async function executeStreamedAssistantRequest({
   }
 
   streamBatcher.flushNow()
+  reasoningBatcher.flushNow()
+  appendAssistantReasoning(streamMsg, streamInfo?.reasoningContent)
+  streamMsg.reasoningStreaming = false
+  delete streamMsg.reasoningStreamingRound
+
+  if (Number(streamInfo?.filteredReasoningChars || 0) > 0) {
+    addDebugLog({
+      level: 'info',
+      scope: 'api.reasoning',
+      message: '已清洗模型推理内容',
+      details: {
+        traceId,
+        model: cfg?.model || '',
+        filteredChars: streamInfo.filteredReasoningChars
+      }
+    })
+  }
 
   const estimatedUsage = estimateUsageFromMessages(messages, streamMsg.content, cfg.model)
   const promptBreakdown = estimatePromptBreakdownFromMessages(messages, cfg.model)
   recordUsage(activeChat, streamInfo, estimatedUsage, cfg.model, { promptBreakdown })
+
+  addDebugLog({
+    level: 'info',
+    scope: 'api.chat',
+    message: '聊天响应完成',
+    details: {
+      traceId,
+      model: cfg?.model || '',
+      url,
+      finishReason: streamInfo?.finishReason || '',
+      emittedChars: streamInfo?.emittedChars ?? null,
+      usedFallback: !!streamInfo?.usedFallback || !!streamInfo?.usedNonStreamFallback
+    }
+  })
 
   return {
     url,

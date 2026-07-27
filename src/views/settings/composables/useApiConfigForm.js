@@ -1,4 +1,17 @@
 import { onMounted, reactive, ref, watch } from 'vue'
+import {
+  API_FORMAT_OPENAI_COMPATIBLE,
+  createDefaultCacheConfig,
+  normalizeApiFormat,
+  normalizeCacheConfig,
+  normalizeProviderConfig
+} from '../../../composables/api/providerFormats'
+import {
+  parseCustomRequestBody,
+  parseCustomRequestHeaders,
+  parseRemovedRequestParameters
+} from '../../../composables/api/requestCustomization'
+import { prepareApiKey, stripInvisibleFormatChars } from '../../../utils/httpHeaders'
 
 const DEFAULT_MODEL_LIST = Object.freeze(['gpt-3.5-turbo', 'gpt-4', 'gpt-4o'])
 
@@ -24,7 +37,16 @@ export function useApiConfigForm({ fetchModels, scheduleSave, showConfirm, showT
     key: '',
     model: '',
     temperature: '',
-    maxTokens: ''
+    maxTokens: '',
+    reasoningEffort: '',
+    apiFormat: API_FORMAT_OPENAI_COMPATIBLE,
+    customHeadersJson: '',
+    customBodyJson: '',
+    autoAdaptParameters: true,
+    removeBodyParamsText: '',
+    cacheEnabled: false,
+    cacheSystemPrompt: true,
+    cacheTtl: '5m'
   })
 
   function toInputValue(v) {
@@ -54,6 +76,16 @@ export function useApiConfigForm({ fetchModels, scheduleSave, showConfirm, showT
     configForm.model = c.model || ''
     configForm.temperature = toInputValue(c.temperature)
     configForm.maxTokens = toInputValue(c.maxTokens)
+    configForm.reasoningEffort = normalizeReasoningEffort(c.reasoningEffort)
+    configForm.apiFormat = normalizeApiFormat(c.apiFormat)
+    configForm.customHeadersJson = typeof c.customHeadersJson === 'string' ? c.customHeadersJson : ''
+    configForm.customBodyJson = typeof c.customBodyJson === 'string' ? c.customBodyJson : ''
+    configForm.autoAdaptParameters = c.autoAdaptParameters !== false
+    configForm.removeBodyParamsText = Array.isArray(c.removeBodyParams) ? c.removeBodyParams.join(', ') : ''
+    const cacheConfig = normalizeCacheConfig(c.cacheConfig)
+    configForm.cacheEnabled = cacheConfig.enabled
+    configForm.cacheSystemPrompt = cacheConfig.systemPrompt
+    configForm.cacheTtl = cacheConfig.ttl
 
     const cachedModels = normalizeCachedModelList(c.cachedModels)
     modelList.value = cachedModels.length > 0 ? cachedModels : [...DEFAULT_MODEL_LIST]
@@ -61,7 +93,17 @@ export function useApiConfigForm({ fetchModels, scheduleSave, showConfirm, showT
 
   function addConfig() {
     const id = 'cfg_' + Date.now()
-    store.configs.push({ id, name: '新配置', url: 'https://api.openai.com/v1', key: '', model: 'gpt-3.5-turbo', temperature: null, maxTokens: null })
+    store.configs.push(normalizeProviderConfig({
+      id,
+      name: '新配置',
+      url: 'https://api.openai.com/v1',
+      key: '',
+      model: 'gpt-3.5-turbo',
+      temperature: null,
+      maxTokens: null,
+      reasoningEffort: '',
+      cacheConfig: createDefaultCacheConfig()
+    }))
     store.activeConfigId = id
     scheduleSave()
     loadConfigInputs()
@@ -98,13 +140,37 @@ export function useApiConfigForm({ fetchModels, scheduleSave, showConfirm, showT
       showToast('输出上限需为 1-32768 的整数，留空不限制输出')
       return false
     }
+    let normalizedKey = ''
+    let removeBodyParams = []
+    try {
+      normalizedKey = prepareApiKey(configForm.key)
+      parseCustomRequestHeaders(configForm.customHeadersJson)
+      parseCustomRequestBody(configForm.customBodyJson)
+      removeBodyParams = parseRemovedRequestParameters(configForm.removeBodyParamsText)
+    } catch (error) {
+      showToast(error?.message || '自定义 JSON 无效')
+      return false
+    }
 
     c.name = configForm.name.trim() || '未命名'
-    c.url = configForm.url.trim()
-    c.key = configForm.key.trim()
+    c.url = stripInvisibleFormatChars(configForm.url).trim()
+    c.key = normalizedKey
+    configForm.url = c.url
+    configForm.key = c.key
     c.model = configForm.model.trim()
     c.temperature = parsedTemperature
     c.maxTokens = parsedMaxTokens
+    c.reasoningEffort = normalizeReasoningEffort(configForm.reasoningEffort)
+    c.apiFormat = normalizeApiFormat(configForm.apiFormat)
+    c.customHeadersJson = configForm.customHeadersJson.trim()
+    c.customBodyJson = configForm.customBodyJson.trim()
+    c.autoAdaptParameters = configForm.autoAdaptParameters !== false
+    c.removeBodyParams = removeBodyParams
+    c.cacheConfig = normalizeCacheConfig({
+      enabled: configForm.cacheEnabled,
+      systemPrompt: configForm.cacheSystemPrompt,
+      ttl: configForm.cacheTtl
+    })
 
     if (previousUrl !== c.url || previousKey !== c.key) {
       c.cachedModels = []
@@ -115,6 +181,12 @@ export function useApiConfigForm({ fetchModels, scheduleSave, showConfirm, showT
     scheduleSave()
     showToast('已保存')
     return true
+  }
+
+  function normalizeReasoningEffort(value) {
+    const effort = String(value || '').trim().toLowerCase()
+    if (effort === 'minimal' || effort === 'low' || effort === 'medium' || effort === 'high') return effort
+    return ''
   }
 
   async function handleFetchModels() {

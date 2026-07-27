@@ -1,20 +1,23 @@
 // Utilities for consuming OpenAI-compatible streaming responses (SSE over fetch).
 // The server usually sends "data: {json}\n\n" and ends with "data: [DONE]".
 
+import {
+  cleanReasoningContent,
+  createReasoningContentFilter,
+  extractReasoningTextFromChoice,
+  extractVisibleTextFromContent
+} from './reasoningContent'
+
 function extractTextFromChoice(choice) {
   if (!choice || typeof choice !== 'object') return ''
 
   const deltaContent = choice?.delta?.content
-  if (typeof deltaContent === 'string') return deltaContent
-  if (Array.isArray(deltaContent)) {
-    return deltaContent.map(p => (typeof p?.text === 'string' ? p.text : '')).join('')
-  }
+  const deltaText = extractVisibleTextFromContent(deltaContent)
+  if (deltaText) return deltaText
 
   const msgContent = choice?.message?.content
-  if (typeof msgContent === 'string') return msgContent
-  if (Array.isArray(msgContent)) {
-    return msgContent.map(p => (typeof p?.text === 'string' ? p.text : '')).join('')
-  }
+  const messageText = extractVisibleTextFromContent(msgContent)
+  if (messageText) return messageText
 
   return ''
 }
@@ -31,6 +34,37 @@ function extractTextFromPayload(payload) {
   return ''
 }
 
+function createStreamingTextAccumulator() {
+  let text = ''
+  let lastChunk = ''
+
+  return {
+    getText() {
+      return text
+    },
+    push(delta) {
+      const piece = String(delta || '')
+      if (!piece) return text
+      if (text && piece.startsWith(text)) {
+        text = piece
+      } else if (!(piece === lastChunk && text.endsWith(piece))) {
+        text += piece
+      }
+      lastChunk = piece
+      return text
+    }
+  }
+}
+
+function mergeReasoningText(...values) {
+  const unique = []
+  values.forEach(value => {
+    const text = String(value || '').trim()
+    if (text && !unique.includes(text)) unique.push(text)
+  })
+  return unique.join('\n\n')
+}
+
 /**
  * Consume a streamed /chat/completions response and emit text deltas.
  * Returns parse diagnostics to help callers distinguish protocol issues.
@@ -39,7 +73,7 @@ function extractTextFromPayload(payload) {
  * @param {(delta: string) => void} onDelta called for every delta chunk
  * @returns {Promise<{emittedChars:number,emittedEvents:number,usedFallback:boolean}>}
  */
-export async function consumeChatCompletionsStream(res, onDelta) {
+export async function consumeChatCompletionsStream(res, onDelta, options = {}) {
   const reader = res?.body?.getReader?.()
   if (!reader) {
     throw new Error('当前环境不支持流式读取')
@@ -54,11 +88,35 @@ export async function consumeChatCompletionsStream(res, onDelta) {
   let usage = null
   let finishReason = null
 
+  const reasoningAccumulator = createStreamingTextAccumulator()
+  let filteredReasoningChars = 0
+  let reasoningFilter = null
+  const notifyReasoning = () => {
+    const reasoningContent = mergeReasoningText(
+      reasoningAccumulator.getText(),
+      reasoningFilter?.getReasoningText()
+    )
+    if (reasoningContent && typeof options.onReasoningDelta === 'function') {
+      options.onReasoningDelta(reasoningContent)
+    }
+  }
+  reasoningFilter = createReasoningContentFilter({ onReasoning: notifyReasoning })
+
   const emitText = (text) => {
     if (!text || typeof text !== 'string') return
-    emittedChars += text.length
+    const visibleText = reasoningFilter.push(text)
+    if (!visibleText) return
+    emittedChars += visibleText.length
     emittedEvents += 1
-    if (typeof onDelta === 'function') onDelta(text)
+    if (typeof onDelta === 'function') onDelta(visibleText)
+  }
+
+  const noteReasoningText = (choice) => {
+    const reasoningText = extractReasoningTextFromChoice(choice)
+    if (!reasoningText) return
+    filteredReasoningChars += reasoningText.length
+    reasoningAccumulator.push(reasoningText)
+    notifyReasoning()
   }
 
   const processEvent = () => {
@@ -69,6 +127,8 @@ export async function consumeChatCompletionsStream(res, onDelta) {
 
     try {
       const payload = JSON.parse(payloadText)
+      const firstChoice = payload?.choices?.[0]
+      noteReasoningText(firstChoice)
       emitText(extractTextFromPayload(payload))
       const choiceFinish = payload?.choices?.[0]?.finish_reason
       if (choiceFinish) finishReason = choiceFinish
@@ -110,16 +170,31 @@ export async function consumeChatCompletionsStream(res, onDelta) {
   }
   processEvent()
 
+  const trailingVisibleText = reasoningFilter.flush()
+  if (trailingVisibleText) {
+    emittedChars += trailingVisibleText.length
+    emittedEvents += 1
+    if (typeof onDelta === 'function') onDelta(trailingVisibleText)
+  }
+  filteredReasoningChars += reasoningFilter.getRemovedChars()
+
   let usedFallback = false
   if (emittedChars === 0) {
     const text = rawText.trim()
     if (text) {
       try {
         const payload = JSON.parse(text)
-        const fallbackText = extractTextFromPayload(payload)
-        if (fallbackText) {
+        const firstChoice = payload?.choices?.[0]
+        noteReasoningText(firstChoice)
+        const cleanedFallback = cleanReasoningContent(extractTextFromPayload(payload))
+        if (cleanedFallback.removedChars > 0) filteredReasoningChars += cleanedFallback.removedChars
+        reasoningAccumulator.push(cleanedFallback.reasoningContent)
+        notifyReasoning()
+        if (cleanedFallback.text) {
           usedFallback = true
-          emitText(fallbackText)
+          emittedChars += cleanedFallback.text.length
+          emittedEvents += 1
+          if (typeof onDelta === 'function') onDelta(cleanedFallback.text)
         }
         const choiceFinish = payload?.choices?.[0]?.finish_reason
         if (choiceFinish) finishReason = choiceFinish
@@ -132,5 +207,13 @@ export async function consumeChatCompletionsStream(res, onDelta) {
     }
   }
 
-  return { emittedChars, emittedEvents, usedFallback, usage, finishReason }
+  return {
+    emittedChars,
+    emittedEvents,
+    usedFallback,
+    usage,
+    finishReason,
+    filteredReasoningChars,
+    reasoningContent: mergeReasoningText(reasoningAccumulator.getText(), reasoningFilter.getReasoningText())
+  }
 }

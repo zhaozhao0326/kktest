@@ -16,12 +16,12 @@ let isProcessing = false
 export function useCallTTS() {
   const settingsStore = useSettingsStore()
   const { play, stop: stopPlayback } = useVoicePlayback()
-  const { aiSpeaking, callActive } = useCallState()
+  const { aiSpeaking, callActive, callContactId } = useCallState()
 
   /**
    * 朗读一个句子（排队等待）
    * @param {string} text - 要朗读的文本
-   * @param {Object} options - { msgId, isUser, emotion, onStarted, onEnded }
+   * @param {Object} options - { msgId, contactId, isUser, emotion, onStarted, onEnded }
    */
   async function speakSentence(text, options = {}) {
     if (!callActive.value) return
@@ -30,7 +30,10 @@ export function useCallTTS() {
     const parts = splitForVoiceMode(text, settingsStore.voiceTtsMode)
     if (parts.length === 0) return
 
-    const shared = { ...options }
+    const shared = {
+      ...options,
+      contactId: String(options.contactId || callContactId.value || '').trim()
+    }
     delete shared.onStarted
     delete shared.onEnded
 
@@ -65,6 +68,7 @@ export function useCallTTS() {
       await new Promise((resolve) => {
         play({
           msgId: item.msgId || null,
+          contactId: item.contactId || '',
           text: item.text,
           isUser: item.isUser || false,
           emotion: item.emotion || 'normal',

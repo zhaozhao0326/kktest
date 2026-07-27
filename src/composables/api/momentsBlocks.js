@@ -19,7 +19,18 @@ import { useMomentsStore } from '../../stores/moments'
  */
 export function buildMomentsHintPrompt(store) {
   if (!store?.syncForumToAI) return ''
-  return '你有朋友圈功能。发动态：(动态:内容) 或 (动态:内容:表情)。评论动态：(动态评论:momentId:内容)；若不确定ID可用 latest/最新/最近，或简写为(动态评论:内容)默认评论最近一条。回复评论可用：(动态评论:momentId:replyId:内容)。仅在自然有感而发时使用。'
+  let hint = '你有朋友圈功能。发动态：(动态:内容) 或 (动态:内容:表情)。评论动态：(动态评论:momentId:内容)；若不确定ID可用 latest/最新/最近，或简写为(动态评论:内容)默认评论最近一条。回复评论可用：(动态评论:momentId:replyId:内容)。'
+  const mediaHints = []
+  if (store?.allowAIImageGeneration) {
+    mediaHints.push('配图：在内容中插入 [图:英文标签,逗号分隔]，如 (动态:今天的落日 [图:sunset, seaside, warm lighting])')
+  }
+  if (store?.allowAIVoice) {
+    mediaHints.push('语音：在内容中插入 [语音:要说的话] 或 [语音:开心:要说的话]')
+  }
+  if (mediaHints.length > 0) {
+    hint += '动态和评论都可附带媒体——' + mediaHints.join('；') + '。'
+  }
+  return hint + '仅在自然有感而发时使用。'
 }
 
 /**

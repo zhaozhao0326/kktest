@@ -1,6 +1,5 @@
 <template>
   <div class="chat-view absolute inset-0 z-30 bg-[var(--chat-bg)] flex flex-col overflow-hidden">
-    <!-- Header -->
     <ChatHeader
       :contact="store.activeChat"
       :badge-count="store.contacts.length"
@@ -11,7 +10,6 @@
       @start-call="handleStartCall"
     />
 
-    <!-- Search Overlay -->
     <ChatSearchOverlay
       :visible="searchVisible"
       :results="searchResults"
@@ -22,7 +20,6 @@
       @jump="(msgId, partKey) => { jumpToMessage(msgId, partKey); closeSearch() }"
     />
 
-    <!-- Token Stats Capsule -->
     <TokenCapsule
       v-if="!isLeavingToMessages && store.showTokenCapsule && store.activeChat"
       :contact="store.activeChat"
@@ -59,16 +56,12 @@
       @open-transfer-detail="openTransferDetail"
     />
 
-    <!-- Image Preview -->
     <ImagePreview v-if="!isLeavingToMessages" :images="store.pendingImages" @remove="removePendingImage" />
 
-    <!-- Reply Bar -->
     <ReplyBar v-if="!isLeavingToMessages" :visible="!!store.replyingToId" :text="store.replyingToText" @cancel="cancelReply" />
 
-    <!-- Edit Bar -->
-    <EditBar v-if="!isLeavingToMessages" :visible="!!store.editingMsgId" :text="editPreview" @cancel="cancelEdit" />
+    <EditMessageModal :visible="!!store.editingMsgId" :text="editDraft" @cancel="cancelEdit" @save="saveEdit" />
 
-    <!-- 多选模式工具栏 -->
     <ChatMultiSelectToolbar
       :visible="multiSelectMode"
       v-if="!isLeavingToMessages"
@@ -80,7 +73,6 @@
       @delete="deleteSelectedBlocks"
     />
 
-    <!-- 群聊多API模式成员选择器 -->
     <ChatGroupMemberSelector
       :visible="!multiSelectMode && isGroupChat && store.activeChat?.groupMode === 'multi'"
       v-if="!isLeavingToMessages"
@@ -88,7 +80,6 @@
       v-model:selectedMemberId="store.selectedMemberId"
     />
 
-    <!-- Input Area -->
     <ChatInput
       v-if="!isLeavingToMessages && !multiSelectMode"
       ref="chatInputRef"
@@ -177,7 +168,6 @@
       @back-from-settings="backFromMemorySettings"
     />
 
-    <!-- Transfer Modal -->
     <TransferModal
       v-if="showTransferModal"
       :visible="showTransferModal"
@@ -185,7 +175,6 @@
       @send="handleSendTransfer"
     />
 
-    <!-- Snoop Phone Consent Dialog -->
     <SnoopConsentDialog
       v-if="showSnoopConsent"
       :visible="showSnoopConsent"
@@ -194,7 +183,6 @@
       @confirm="handleSnoopConfirm"
     />
 
-    <!-- Gift Picker Panel -->
     <GiftPickerPanel
       v-if="showGiftPanel"
       :visible="showGiftPanel"
@@ -202,7 +190,6 @@
       @send="handleSendGift"
     />
 
-    <!-- Transfer/Gift Detail Panel -->
     <TransferDetailPanel
       v-if="showTransferDetail"
       :visible="showTransferDetail"
@@ -213,7 +200,6 @@
       @reject="transferDetailBlock?.type === 'gift' ? handleRejectGift($event) : handleRejectTransfer($event)"
     />
 
-    <!-- Voice Modal -->
     <VoiceModal
       v-if="showVoiceModal"
       :visible="showVoiceModal"
@@ -221,7 +207,6 @@
       @send="handleSendVoice"
     />
 
-    <!-- Meet Invite Modal -->
     <MeetInviteModal
       v-if="showMeetModal"
       :visible="showMeetModal"
@@ -346,13 +331,12 @@ import { useCharacterResourcesStore } from '../../../stores/characterResources'
 import { useAlbumStore } from '../../../stores/album'
 import { usePlannerStore } from '../../../stores/planner'
 
-// 组件导入
 import ChatHeader from '../components/ChatHeader.vue'
 import ChatMessageList from '../components/ChatMessageList.vue'
 import ChatInput from '../components/ChatInput.vue'
 import ImagePreview from '../components/ImagePreview.vue'
 import ReplyBar from '../components/ReplyBar.vue'
-import EditBar from '../components/EditBar.vue'
+import EditMessageModal from '../components/EditMessageModal.vue'
 import ChatMultiSelectToolbar from '../components/ChatMultiSelectToolbar.vue'
 import ChatGroupMemberSelector from '../components/ChatGroupMemberSelector.vue'
 import ChatContextMenuLayer from '../components/ChatContextMenuLayer.vue'
@@ -542,7 +526,6 @@ const {
   store
 })
 
-// Refs
 const {
   showCallModeSheet,
   showCallHistoryModal,
@@ -596,7 +579,6 @@ const {
   processAssistantFavoriteTokens
 } = useChatFavorites({ store, scheduleSave, showToast, makeId })
 
-// 从 App.vue 注入的方法
 const openEditContact = inject('openEditContact')
 const openEditGroup = inject('openEditGroup')
 
@@ -612,7 +594,6 @@ function handleAcceptedMeet(contact) {
   router.push('/offline/' + contact.id)
 }
 
-// 右键菜单
 function cleanupOfflineLinksForRemovedMessages(removedMessages) {
   if (!store.activeChat) return
   removeOfflineArtifactsByRemovedChatMessages(store.activeChat, removedMessages)
@@ -686,7 +667,7 @@ const { scrollToBottom } = useChatViewLifecycle({
   hideNarrationMenu
 })
 
-const { processAssistantImageTokens } = useChatImageTokens({
+const { processAssistantImageTokens, rerollImageMessage } = useChatImageTokens({
   store,
   charResStore,
   albumStore,
@@ -705,7 +686,7 @@ const { processAssistantPlannerActions } = useChatPlannerActions({
 const {
   cancelEdit,
   cancelReply,
-  editPreview,
+  editDraft,
   handleCopy,
   handleDelete,
   handleDeleteOfflineCard,
@@ -713,6 +694,7 @@ const {
   handleRegen,
   handleReply,
   inputText,
+  saveEdit,
   sendMessage
 } = useChatMessageActions({
   albumStore,
@@ -735,6 +717,7 @@ const {
   processAssistantFavoriteTokens,
   processAssistantPlannerActions,
   processAssistantImageTokens,
+  rerollImageMessage,
   rebuildMessageContent,
   scheduleSave,
   scrollToBottom,

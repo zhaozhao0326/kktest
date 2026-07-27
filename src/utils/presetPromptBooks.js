@@ -7,6 +7,13 @@ export const DEFAULT_CHAT_FORMAT_TEMPLATE = `你正在和{{user}}手机聊天
 
 输出规则：
 1. 每行是一条消息，口语化。
+2. 旁白/心理/动作等描写用 *...* 包裹。
+3. 只输出你负责的角色发言，不代替{{user}}说话，也不补写、预测{{user}}的动作、心理、决定或下一轮回复。`
+
+const LEGACY_CHAT_FORMAT_TEMPLATE_WITHOUT_USER_BOUNDARY = `你正在和{{user}}手机聊天
+
+输出规则：
+1. 每行是一条消息，口语化。
 2. 旁白/心理/动作等描写用 *...* 包裹。`
 
 const LEGACY_CHAT_FORMAT_TEMPLATE_CURRENT = `输出规则：
@@ -48,7 +55,28 @@ export const DEFAULT_IMAGE_GENERATION_TEMPLATE_NL = `你可以发送真实图片
 
 1. 格式：(image:简短描述)，每次最多 1 个，单独占一行。
 2. 角色图只写动作/场景/情绪（系统处理外观），如 (image:在咖啡厅微笑着看窗外)
-3. 非角色图加前缀：(image:type=scene, 夕阳下的海滩)`
+3. 非角色图加前缀：(image:type=scene, 夕阳下的海滩)
+4. 如确有构图需要，可加可选参数：size=square/portrait/landscape，或 ratio=16:9，或 quality=high。例如：(image:size=portrait, quality=high, 在咖啡厅微笑着看窗外)`
+
+export const DEFAULT_IMAGE_GENERATION_TEMPLATE_GPT_IMAGE = `你可以发送真实图片。适合发图时在单独一行输出 image token，像真人发照片一样自然。
+
+当前图片模型偏 GPT Image / OpenAI 兼容自然语言模型，image token 里应写清楚画面内容，而不是堆 danbooru tag。
+
+1. 格式：(image:一句具体自然语言画面描述)，每次最多 1 个，单独占一行。
+2. 角色图只写动作、表情、场景、镜头、光线和氛围；系统会补角色外观，不要重复长篇外貌设定。
+3. 非角色图加前缀：(image:type=scene, 暴雨夜的街口，霓虹灯倒映在积水里)
+4. 可选参数放在描述前：size=square/portrait/landscape、ratio=16:9、quality=high、format=webp。例如：(image:size=portrait, quality=high, 在咖啡厅微笑着看窗外，柔和晨光，手机随手拍感)
+5. 不要输出 JSON、代码块、Markdown 图片或解释性前后缀。`
+
+export const DEFAULT_IMAGE_GENERATION_TEMPLATE_GEMINI = `你可以发送真实图片。适合发图时在单独一行输出 image token，像真人发照片一样自然。
+
+当前图片模型偏 Gemini / NanoBanana，多数情况下更适合清楚的自然语言描述；做角色图时要强调动作/表情/场景，角色一致性由系统参考图和角色设定处理。
+
+1. 格式：(image:简短但具体的自然语言描述)，每次最多 1 个，单独占一行。
+2. 角色图只写当前画面变化，如表情、姿势、构图、光影、环境；不要把角色外貌 tag 一股脑塞进去。
+3. 非角色图加前缀：(image:type=scene, 夕阳下的海滩，低角度镜头，暖色逆光)
+4. 可选参数：size=square/portrait/landscape、ratio=16:9、quality=high。例如：(image:ratio=16:9, type=scene, 雨后操场，远处教学楼亮着灯)
+5. 若当前不适合发图则不要输出 image token；禁止输出 JSON、代码块或解释性前后缀。`
 
 function normalizePromptText(text) {
   return String(text || '').replace(/\r\n/g, '\n').trim()
@@ -118,6 +146,7 @@ export function isLegacyChatFormatTemplate(content) {
   const text = normalizePromptText(content)
   if (!text) return false
   return (
+    text === normalizePromptText(LEGACY_CHAT_FORMAT_TEMPLATE_WITHOUT_USER_BOUNDARY) ||
     text === normalizePromptText(LEGACY_CHAT_FORMAT_TEMPLATE_CURRENT) ||
     text === normalizePromptText(LEGACY_CHAT_FORMAT_TEMPLATE_SHORT) ||
     text === normalizePromptText(LEGACY_CHAT_FORMAT_TEMPLATE_LONG)
@@ -133,4 +162,15 @@ export function isLegacyImageGenerationTemplate(content) {
     (text.includes('当你认为图片能明显提升聊天体验时，可以主动发送图片。') &&
     text.includes('仅在单独一行输出：(image:tag1, tag2, tag3, ...)'))
   )
+}
+
+export function isBuiltInImageGenerationTemplate(content) {
+  const text = normalizePromptText(content)
+  if (!text) return false
+  return [
+    DEFAULT_IMAGE_GENERATION_TEMPLATE,
+    DEFAULT_IMAGE_GENERATION_TEMPLATE_NL,
+    DEFAULT_IMAGE_GENERATION_TEMPLATE_GPT_IMAGE,
+    DEFAULT_IMAGE_GENERATION_TEMPLATE_GEMINI
+  ].some(template => text === normalizePromptText(template))
 }

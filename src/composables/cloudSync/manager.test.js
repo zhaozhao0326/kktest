@@ -17,8 +17,18 @@ const firebaseMocks = vi.hoisted(() => {
     }),
     linkWithRedirect: vi.fn(async () => {}),
     linkWithPopup: vi.fn(async () => {}),
+    doc: vi.fn((_db, ...segments) => ({ segments })),
+    getDoc: vi.fn(async () => ({
+      exists: () => false,
+      data: () => ({})
+    })),
     getFirestore: vi.fn(() => ({ kind: 'db' })),
-    getStorage: vi.fn(() => ({ kind: 'storage' }))
+    serverTimestamp: vi.fn(() => ({ kind: 'server-timestamp' })),
+    setDoc: vi.fn(async () => {}),
+    getBlob: vi.fn(async () => new Blob(['backup'])),
+    getStorage: vi.fn(() => ({ kind: 'storage' })),
+    ref: vi.fn((_storage, path) => ({ path })),
+    uploadBytes: vi.fn(async () => {})
   }
 })
 
@@ -29,6 +39,7 @@ const storeMocks = vi.hoisted(() => ({
     cloudSyncAutoSyncPolicy: 'always',
     cloudSyncCustomMinIntervalMs: 0,
     cloudSyncCustomMinDeltaBytes: 0,
+    cloudSyncForceSyncOnBackground: false,
     cloudSyncIncludeMedia: false,
     cloudSyncDeviceId: '',
     cloudSyncConfig: {
@@ -74,18 +85,18 @@ vi.mock('firebase/auth', () => ({
 }))
 
 vi.mock('firebase/firestore', () => ({
-  doc: vi.fn(),
-  getDoc: vi.fn(),
+  doc: firebaseMocks.doc,
+  getDoc: firebaseMocks.getDoc,
   getFirestore: firebaseMocks.getFirestore,
-  serverTimestamp: vi.fn(),
-  setDoc: vi.fn()
+  serverTimestamp: firebaseMocks.serverTimestamp,
+  setDoc: firebaseMocks.setDoc
 }))
 
 vi.mock('firebase/storage', () => ({
-  getBlob: vi.fn(),
+  getBlob: firebaseMocks.getBlob,
   getStorage: firebaseMocks.getStorage,
-  ref: vi.fn(),
-  uploadBytes: vi.fn()
+  ref: firebaseMocks.ref,
+  uploadBytes: firebaseMocks.uploadBytes
 }))
 
 vi.mock('../../stores/settings', () => ({
@@ -177,6 +188,7 @@ function resetMockState() {
   storeMocks.settingsStore.cloudSyncAutoSyncPolicy = 'always'
   storeMocks.settingsStore.cloudSyncCustomMinIntervalMs = 0
   storeMocks.settingsStore.cloudSyncCustomMinDeltaBytes = 0
+  storeMocks.settingsStore.cloudSyncForceSyncOnBackground = false
   storeMocks.settingsStore.cloudSyncIncludeMedia = false
   storeMocks.settingsStore.cloudSyncDeviceId = ''
   storeMocks.settingsStore.cloudSyncConfig = {
@@ -205,17 +217,30 @@ function resetMockState() {
   })
   firebaseMocks.linkWithRedirect.mockResolvedValue(undefined)
   firebaseMocks.linkWithPopup.mockResolvedValue(undefined)
+  firebaseMocks.doc.mockImplementation((_db, ...segments) => ({ segments }))
+  firebaseMocks.getDoc.mockResolvedValue({
+    exists: () => false,
+    data: () => ({})
+  })
   firebaseMocks.getFirestore.mockReturnValue({ kind: 'db' })
+  firebaseMocks.serverTimestamp.mockReturnValue({ kind: 'server-timestamp' })
+  firebaseMocks.setDoc.mockResolvedValue(undefined)
+  firebaseMocks.getBlob.mockResolvedValue(new Blob(['backup']))
   firebaseMocks.getStorage.mockReturnValue({ kind: 'storage' })
+  firebaseMocks.ref.mockImplementation((_storage, path) => ({ path }))
+  firebaseMocks.uploadBytes.mockResolvedValue(undefined)
 }
 
 describe('cloudSync manager google link handoff', () => {
   beforeEach(() => {
     vi.resetModules()
     resetMockState()
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-13T12:00:00.000Z'))
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
@@ -268,5 +293,163 @@ describe('cloudSync manager google link handoff', () => {
     expect(windowStub.localStorage.getItem('aichat:cloud-sync:google-link-return-hash')).toBe('#/settings/cloudSync')
     expect(windowStub.localStorage.getItem('aichat_lockscreen_unlock_grace_until')).toBeTruthy()
     expect(storeMocks.showToast).not.toHaveBeenCalled()
+  })
+
+  it('does not enter uploading state when an auto upload is deferred by policy', async () => {
+    storeMocks.settingsStore.cloudSyncAutoSync = true
+    storeMocks.settingsStore.cloudSyncAutoSyncPolicy = 'balanced'
+
+    let localUpdatedAt = 1_000
+    let backupPayload = 'a'.repeat(600 * 1024)
+    const storageApi = {
+      scheduleSave: vi.fn(),
+      getCurrentSnapshotMeta: vi.fn(() => ({
+        localUpdatedAt,
+        hasUserData: true
+      })),
+      buildBackupBlob: vi.fn(async () => ({
+        snapshot: { localUpdatedAt },
+        blob: new Blob([backupPayload], { type: 'application/zip' })
+      }))
+    }
+
+    const { notifyCloudSyncLocalSave } = await import('./manager')
+
+    await notifyCloudSyncLocalSave({
+      storageApi,
+      snapshot: { localUpdatedAt },
+      reason: 'auto'
+    })
+
+    expect(firebaseMocks.uploadBytes).toHaveBeenCalledTimes(1)
+
+    firebaseMocks.uploadBytes.mockClear()
+    storeMocks.syncStore.setStatus.mockClear()
+    storeMocks.syncStore.setPendingAction.mockClear()
+
+    localUpdatedAt = 2_000
+    backupPayload = 'b'.repeat(600 * 1024 + 128)
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000)
+
+    await notifyCloudSyncLocalSave({
+      storageApi,
+      snapshot: { localUpdatedAt },
+      reason: 'auto'
+    })
+
+    expect(firebaseMocks.uploadBytes).not.toHaveBeenCalled()
+    expect(storeMocks.syncStore.setStatus).not.toHaveBeenCalledWith('syncing')
+    expect(storeMocks.syncStore.setPendingAction).not.toHaveBeenCalledWith('push')
+  })
+
+  it('only force-syncs on pagehide when the background toggle is enabled', async () => {
+    storeMocks.settingsStore.cloudSyncAutoSync = true
+    storeMocks.settingsStore.cloudSyncAutoSyncPolicy = 'balanced'
+    storeMocks.settingsStore.cloudSyncForceSyncOnBackground = false
+
+    let localUpdatedAt = 1_000
+    let backupPayload = 'a'.repeat(600 * 1024)
+    const storageApi = {
+      scheduleSave: vi.fn(),
+      getCurrentSnapshotMeta: vi.fn(() => ({
+        localUpdatedAt,
+        hasUserData: true
+      })),
+      buildBackupBlob: vi.fn(async () => ({
+        snapshot: { localUpdatedAt },
+        blob: new Blob([backupPayload], { type: 'application/zip' })
+      }))
+    }
+
+    const { notifyCloudSyncLocalSave } = await import('./manager')
+
+    await notifyCloudSyncLocalSave({
+      storageApi,
+      snapshot: { localUpdatedAt },
+      reason: 'auto'
+    })
+
+    firebaseMocks.uploadBytes.mockClear()
+
+    localUpdatedAt = 2_000
+    backupPayload = 'b'.repeat(600 * 1024 + 128)
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000)
+
+    await notifyCloudSyncLocalSave({
+      storageApi,
+      snapshot: { localUpdatedAt },
+      reason: 'pagehide'
+    })
+
+    expect(firebaseMocks.uploadBytes).not.toHaveBeenCalled()
+
+    storeMocks.settingsStore.cloudSyncForceSyncOnBackground = true
+    localUpdatedAt = 3_000
+    backupPayload = 'c'.repeat(600 * 1024 + 256)
+
+    await notifyCloudSyncLocalSave({
+      storageApi,
+      snapshot: { localUpdatedAt },
+      reason: 'pagehide'
+    })
+
+    expect(firebaseMocks.uploadBytes).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not initialize Firebase or upload when local storage has not hydrated', async () => {
+    storeMocks.settingsStore.cloudSyncAutoSync = true
+
+    const storageApi = {
+      scheduleSave: vi.fn(),
+      getCurrentSnapshotMeta: vi.fn(() => ({
+        localUpdatedAt: 1_000,
+        hasUserData: true,
+        isHydrated: false,
+        canPersist: false
+      })),
+      buildBackupBlob: vi.fn()
+    }
+
+    const { notifyCloudSyncLocalSave } = await import('./manager')
+
+    const result = await notifyCloudSyncLocalSave({
+      storageApi,
+      snapshot: { localUpdatedAt: 1_000 },
+      reason: 'pagehide'
+    })
+
+    expect(result).toBe(true)
+    expect(firebaseMocks.initializeApp).not.toHaveBeenCalled()
+    expect(firebaseMocks.uploadBytes).not.toHaveBeenCalled()
+    expect(storageApi.buildBackupBlob).not.toHaveBeenCalled()
+  })
+
+  it('does not upload empty local data even for forced pagehide sync', async () => {
+    storeMocks.settingsStore.cloudSyncAutoSync = true
+    storeMocks.settingsStore.cloudSyncForceSyncOnBackground = true
+
+    const storageApi = {
+      scheduleSave: vi.fn(),
+      getCurrentSnapshotMeta: vi.fn(() => ({
+        localUpdatedAt: 1_000,
+        hasUserData: false,
+        isHydrated: true,
+        canPersist: true
+      })),
+      buildBackupBlob: vi.fn()
+    }
+
+    const { notifyCloudSyncLocalSave } = await import('./manager')
+
+    const result = await notifyCloudSyncLocalSave({
+      storageApi,
+      snapshot: { localUpdatedAt: 1_000 },
+      reason: 'pagehide'
+    })
+
+    expect(result).toBe(true)
+    expect(firebaseMocks.initializeApp).not.toHaveBeenCalled()
+    expect(firebaseMocks.uploadBytes).not.toHaveBeenCalled()
+    expect(storageApi.buildBackupBlob).not.toHaveBeenCalled()
   })
 })

@@ -3,6 +3,7 @@ import { useCharacterResourcesStore } from '../../../stores/characterResources'
 import { useMeetStore } from '../../../stores/meet'
 import { useVNStore } from '../../../stores/vn'
 import { useImageGen } from '../../../composables/useImageGen'
+import { isNaturalImageGenProvider, normalizeImageGenProvider } from '../../../composables/imageGen/providers'
 import { clampNumber, isDirectUrl, lower, normalizeExpression, normalizeText } from './meetResources/utils'
 import {
   buildFallbackBackgroundUrl,
@@ -26,7 +27,7 @@ import {
 import { resolveCharacterMeta } from './meetResources/characterMeta'
 import { createMeetResourceStore } from './meetResources/resourceStore'
 import { createMeetSourceResolver } from './meetResources/sourceResolver'
-import { processSpriteCutoutUrl } from './meetResources/spriteCutout'
+import { processSpriteCutoutUrl } from '../../../composables/imageGen/spriteCutout'
 
 export function useMeetResources() {
   const contactsStore = useContactsStore()
@@ -323,7 +324,7 @@ export function useMeetResources() {
       meetStore
     }, characterId, payload.vnName)
     let prompt = buildSpritePrompt(payload, meta)
-    const provider = lower(vnStore.imageGenConfig?.provider)
+    const provider = normalizeImageGenProvider(vnStore.imageGenConfig?.provider)
 
     const generateOptions = {
       width: 832,
@@ -342,8 +343,8 @@ export function useMeetResources() {
           const base64 = await imageUrlToBase64(normalizeMediaUrlForUse(normalSprite, 'image'))
           if (base64) {
             generateOptions.baseImage = base64
-            generateOptions.strength = provider === 'nanobanana' ? 0.35 : 0.45
-            if (!normalizeText(payload.prompt) && provider === 'nanobanana') {
+            generateOptions.strength = isNaturalImageGenProvider(provider) ? 0.35 : 0.45
+            if (!normalizeText(payload.prompt) && isNaturalImageGenProvider(provider)) {
               prompt = buildNanoBananaEditPrompt(meta.displayName, expression)
             }
           }

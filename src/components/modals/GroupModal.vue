@@ -186,8 +186,8 @@
             <div class="flex items-center gap-2">
               <span class="text-xl">🌐</span>
               <div>
-                <div class="text-[17px] text-black dark:text-white">全部已启用服务器</div>
-                <div class="text-[12px] text-[#8E8E93]">留空时不限制群聊可用的 MCP 列表</div>
+                <div class="text-[17px] text-black dark:text-white">不使用 MCP</div>
+                <div class="text-[12px] text-[#8E8E93]">留空时不发现外部工具</div>
               </div>
             </div>
             <div
@@ -207,10 +207,7 @@
               <span class="text-xl">🧰</span>
               <div>
                 <div class="text-[17px] text-black dark:text-white">{{ server.name || server.id }}</div>
-                <div class="text-[12px] text-[#8E8E93]">
-                  {{ server.transport === 'http' ? 'HTTP' : 'STDIO' }}
-                  <span v-if="server.enabled === false"> · 全局已禁用</span>
-                </div>
+                <div class="text-[12px] text-[#8E8E93]">{{ mcpServerSubtitle(server) }}</div>
               </div>
             </div>
             <div
@@ -269,10 +266,7 @@
             >
               <div>
                 <div class="text-[15px] text-black dark:text-white">{{ server.name || server.id }}</div>
-                <div class="text-[12px] text-[#8E8E93]">
-                  {{ server.transport === 'http' ? 'HTTP' : 'STDIO' }}
-                  <span v-if="server.enabled === false"> · 全局已禁用</span>
-                </div>
+                <div class="text-[12px] text-[#8E8E93]">{{ mcpServerSubtitle(server) }}</div>
               </div>
               <div
                 class="w-[24px] h-[24px] rounded-full border-2 flex items-center justify-center"
@@ -431,7 +425,7 @@ import { isReservedPromptPresetBook } from '../../utils/presetPromptBooks'
 import { showConfirm } from '../../composables/useConfirm'
 import { compressImage } from '../../composables/useImage'
 import { normalizeImageUrlInput } from '../../utils/mediaUrl'
-import { describeMcpServerSelection, normalizeMcpServerIds } from '../../utils/mcpServers'
+import { describeMcpServerSelection, listAvailableMcpServers, normalizeMcpServerIds } from '../../utils/mcpServers'
 import { describeStickerGroups } from '../../utils/stickerGroups'
 import IosModal from '../common/IosModal.vue'
 
@@ -466,11 +460,15 @@ function normalizeBoundLorebooks(bookIds) {
 const availableLorebooks = computed(() => {
   return (lorebookStore.lorebook?.books || []).filter(book => !isReservedPromptPresetBook(book))
 })
-const availableMcpServers = computed(() => (
-  Array.isArray(settingsStore.toolCallingConfig?.mcpServers)
-    ? settingsStore.toolCallingConfig.mcpServers
-    : []
-))
+const availableMcpServers = computed(() => listAvailableMcpServers(settingsStore.toolCallingConfig))
+
+function mcpServerSubtitle(server) {
+  const disabledSuffix = server?.enabled === false ? ' · 全局已禁用' : ''
+  if (server?.source === 'notion') return `Notion${disabledSuffix}`
+  if (server?.source === 'direct') return `MCP 直连${disabledSuffix}`
+  const transport = server?.transport === 'http' ? 'HTTP' : 'STDIO'
+  return `本地桥接 · ${transport}${disabledSuffix}`
+}
 
 const bgInput = ref(null)
 
@@ -582,9 +580,7 @@ function contactStickerLabel(contact) {
 }
 
 function contactMcpLabel(contact) {
-  return describeMcpServerSelection(contact?.mcpServerIds, availableMcpServers.value, {
-    emptyLabel: '全部已启用服务器'
-  })
+  return describeMcpServerSelection(contact?.mcpServerIds, availableMcpServers.value)
 }
 
 function memberStickerLabel(member) {
@@ -755,7 +751,10 @@ function saveGroup() {
 
 async function clearChatHistory() {
   if (!editingGroup.value) return
-  const confirmed = await showConfirm({ message: `确定清空 ${currentMsgCount.value} 条聊天记录?`, destructive: true })
+  const confirmed = await showConfirm({
+    message: `确定清空 ${currentMsgCount.value} 条聊天记录？群聊记忆不会随之删除。`,
+    destructive: true
+  })
   if (!confirmed) return
   const contactIndex = contactsStore.contacts.findIndex(x => x.id === editingGroup.value.id)
   if (contactIndex !== -1) {

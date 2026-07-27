@@ -22,6 +22,27 @@ function resolveReplyText(message, allMessages = []) {
   return ''
 }
 
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function hasSenderPrefix(content, senderName) {
+  const text = String(content || '')
+  const name = String(senderName || '').trim()
+  if (!text || !name) return false
+  return new RegExp(`^\\[\\s*${escapeRegex(name)}\\s*\\][:：]\\s*`, 'i').test(text)
+}
+
+function prefixGroupAssistantContent(message, content, fallback = '') {
+  const text = String(content || '').trim()
+  const senderName = String(message?.senderName || '').trim()
+  const nextContent = text || String(fallback || '').trim()
+
+  if (!senderName || !nextContent) return nextContent
+  if (hasSenderPrefix(nextContent, senderName)) return nextContent
+  return `[${senderName}]: ${nextContent}`
+}
+
 export async function resolveContextMessageImageUrls(contextMsgs = [], resolveImageUrl) {
   if (!Array.isArray(contextMsgs) || contextMsgs.length === 0 || typeof resolveImageUrl !== 'function') {
     return contextMsgs
@@ -76,6 +97,8 @@ export function buildGroupSingleApiMessages(contextMsgs = []) {
       let text = ''
       if (message.role === 'user') {
         text = '[\u7528\u6237]:' + (baseContent ? ` ${baseContent}` : ' [\u56FE\u7247]')
+      } else if (message.role === 'assistant') {
+        text = prefixGroupAssistantContent(message, baseContent, '[\u56FE\u7247]')
       } else if (baseContent) {
         text = baseContent
       }
@@ -88,6 +111,8 @@ export function buildGroupSingleApiMessages(contextMsgs = []) {
     let content = message.content
     if (message.role === 'user') {
       content = `[\u7528\u6237]: ${message.content}`
+    } else if (message.role === 'assistant') {
+      content = prefixGroupAssistantContent(message, message.content)
     }
     return { role: message.role, content }
   })

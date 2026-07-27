@@ -32,6 +32,7 @@ export function buildUnifiedSystemPrompt(options = {}) {
       '<history_retrieval> 是从过去对话中检索到的回忆片段，仅做背景参考，不要当作刚发生的事来回应。',
       '<current_dialogue> 后面的最近消息才是你现在要直接续接的对话。',
       '始终以当前对话段落里的最后一条用户消息为直接回复目标。',
+      '只生成你负责的角色回复；不要生成、补写、预测或代替用户的发言、动作、心理、决定或下一轮输入。',
       '<now> 描述了此刻的真实时间和间隔状态。'
     ]
     if (memoryPrompt) {

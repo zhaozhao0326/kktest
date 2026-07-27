@@ -7,6 +7,7 @@ import { parseGroupReplyMessages } from '../groupReplyParser'
 import { applyAssistantInteractionDecisions } from '../../../features/chat'
 import { finalizeAssistantTurn } from './chatSideEffects'
 import { executeChatStreamOrchestrator } from './sharedChatExecutor'
+import { prepareChatTools } from './toolPreparation'
 import { resolveGroupSingleMcpServerIds } from '../../../utils/mcpServers'
 
 export async function runGroupSingleChatOrchestrator(context, onChunk) {
@@ -55,41 +56,17 @@ export async function runGroupSingleChatOrchestrator(context, onChunk) {
 
   const traceId = makeTraceId()
   const members = activeChat?.members || []
-
-  // Resolve tool calling if enabled
-  let tools = null
-  let toolContext = null
-  let externalExecutors = null
-  if (settingsStore.allowToolCalling) {
-    try {
-      const { getAvailableTools } = await import('../tools/toolRegistry')
-      const selectedMcpServerIds = resolveGroupSingleMcpServerIds(activeChat)
-      const mcpDiscovery = typeof discoverMcpTools === 'function'
-        ? await discoverMcpTools({ serverIds: selectedMcpServerIds })
-        : { tools: [], externalExecutors: null }
-      externalExecutors = mcpDiscovery.externalExecutors || null
-      tools = getAvailableTools(settingsStore, activeChat, mcpDiscovery.tools || [])
-      if (tools.length > 0) {
-        const { useMomentsStore } = await import('../../../stores/moments')
-        const { useMusicStore } = await import('../../../stores/music')
-        const { usePlannerStore } = await import('../../../stores/planner')
-        const { useLivenessStore } = await import('../../../stores/liveness')
-        toolContext = {
-          contactsStore,
-          settingsStore,
-          momentsStore: useMomentsStore(),
-          musicStore: useMusicStore(),
-          plannerStore: usePlannerStore(),
-          livenessStore: useLivenessStore(),
-          activeChat,
-          makeMsgId
-        }
-      }
-    } catch (err) {
-      console.warn('[ToolCalling] Failed to resolve tools, proceeding without:', err?.message)
-      tools = null
-    }
-  }
+  const selectedMcpServerIds = resolveGroupSingleMcpServerIds(activeChat)
+  const toolPreparationPromise = prepareChatTools({
+    contactsStore,
+    settingsStore,
+    activeChat,
+    selectedMcpServerIds,
+    discoverMcpTools,
+    makeMsgId
+  })
+  const contextWindowPromise = Promise.resolve().then(() => getContextWindowedMsgs(activeChat))
+  const { tools, toolContext, externalExecutors } = await toolPreparationPromise
 
   const { templateVars, mainSystemPrompt, postHistoryPrompt } = buildGroupSingleRequestPlan({
     activeChat,
@@ -126,7 +103,7 @@ export async function runGroupSingleChatOrchestrator(context, onChunk) {
       activeChat,
       mainSystemPrompt,
       templateVars,
-      loadContextWindowedMsgs: getContextWindowedMsgs,
+      loadContextWindowedMsgs: () => contextWindowPromise,
       resolveContextMessagesForApi,
       buildApiMessages: buildGroupSingleApiMessages,
       insertLorebookEntries,

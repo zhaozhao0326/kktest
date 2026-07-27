@@ -321,6 +321,7 @@ ${existingReplies || '(暂无)'}
     aiGenerate,
     aiGenerating,
     aiGeneratingText,
+    createAIReply,
     canJoinAutoReply,
     clearAutoReplyContacts,
     generateWithAI,

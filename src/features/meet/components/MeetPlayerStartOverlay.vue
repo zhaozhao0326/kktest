@@ -40,35 +40,62 @@ const emit = defineEmits(['restart', 'setup', 'start'])
   position: absolute;
   inset: 0;
   z-index: 110;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(10, 8, 18, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 30px;
+  padding: 30px 24px;
 }
 
 .start-card {
+  position: relative;
   width: 100%;
-  max-width: 420px;
-  background: rgba(210, 210, 210, 0.88);
-  border: 3px solid #111;
-  padding: 48px 32px 32px;
+  max-width: 400px;
+  background: rgba(28, 26, 38, 0.85);
+  backdrop-filter: blur(32px) saturate(160%);
+  -webkit-backdrop-filter: blur(32px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 28px;
+  padding: 44px 28px 28px;
   text-align: center;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.45),
+    0 0 80px rgba(244, 114, 182, 0.12);
   font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
+  overflow: hidden;
+}
+
+.start-card::before {
+  content: '';
+  position: absolute;
+  top: -60px;
+  left: 50%;
+  width: 260px;
+  height: 160px;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at center, rgba(244, 114, 182, 0.22) 0%, transparent 70%);
+  pointer-events: none;
 }
 
 .start-title {
-  font-size: 1.6rem;
+  position: relative;
+  font-size: 1.55rem;
   font-weight: 700;
-  color: #111;
-  margin-bottom: 8px;
   letter-spacing: 4px;
+  margin-bottom: 10px;
+  background: linear-gradient(135deg, #fdf2f8, #f9a8d4);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .start-location {
-  color: #555;
-  font-size: 0.9rem;
+  position: relative;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.85rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -76,15 +103,19 @@ const emit = defineEmits(['restart', 'setup', 'start'])
   letter-spacing: 2px;
 }
 
+.start-location i { color: rgba(244, 114, 182, 0.75); }
+
 .start-desc {
-  margin: 24px 0 32px;
-  color: #666;
+  position: relative;
+  margin: 22px 0 30px;
+  color: rgba(255, 255, 255, 0.55);
   font-size: 0.85rem;
-  line-height: 1.6;
+  line-height: 1.7;
   letter-spacing: 1px;
 }
 
 .start-actions {
+  position: relative;
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
@@ -93,7 +124,7 @@ const emit = defineEmits(['restart', 'setup', 'start'])
 .start-actions button {
   height: 50px;
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
   letter-spacing: 4px;
   cursor: pointer;
@@ -102,25 +133,19 @@ const emit = defineEmits(['restart', 'setup', 'start'])
 
 .btn-setup {
   flex: 1;
-  background: transparent;
-  border: 2px solid #555;
-  color: #333;
-}
-
-.btn-setup:hover {
-  border-color: #333;
-  color: #111;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .btn-start {
   flex: 2;
-  background: #000;
-  border: 2px solid #000;
+  border-radius: 22px;
+  background: linear-gradient(135deg, #f472b6, #db2777);
+  border: none;
   color: #fff;
-}
-
-.btn-start:hover {
-  background: #222;
+  box-shadow: 0 8px 24px rgba(219, 39, 119, 0.35);
 }
 
 .btn-start:active,
@@ -129,22 +154,24 @@ const emit = defineEmits(['restart', 'setup', 'start'])
 }
 
 .btn-start:disabled {
-  opacity: 0.3;
+  opacity: 0.4;
+  box-shadow: none;
 }
 
 .btn-restart {
   width: 100%;
   height: 44px;
+  border-radius: 20px;
   background: transparent;
-  border: 1px solid #555;
-  color: #333;
-  font-size: 0.85rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.82rem;
   letter-spacing: 2px;
 }
 
-.btn-restart:hover {
-  border-color: #333;
-  color: #111;
+.btn-restart:active {
+  transform: scale(0.97);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .btn-restart:disabled {

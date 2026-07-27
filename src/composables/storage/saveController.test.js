@@ -105,6 +105,18 @@ describe('saveController', () => {
     expect(controller.getLastLocalUpdatedAt()).toBe(Date.now())
   })
 
+  it('notifies auto cloud sync after a regular save flush', async () => {
+    const { controller, calls } = createController()
+
+    await controller.flushSaveNow()
+
+    expect(calls.notifyCloudSyncLocalSave).toHaveBeenCalledWith({
+      snapshot: expect.objectContaining({ localUpdatedAt: Date.now() }),
+      storageApi: { flushSaveNow: true },
+      reason: 'auto'
+    })
+  })
+
   it('restores inline media when external media persistence fails', async () => {
     const mediaError = new Error('persist failed')
     const { controller, calls } = createController({

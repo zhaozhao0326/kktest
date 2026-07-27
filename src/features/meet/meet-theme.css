@@ -1,26 +1,29 @@
-/* meet-theme.css - Black & White Minimalist VN Text Game Style */
+/* meet-theme.css - Modern Glassmorphism VN Style */
 
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&display=swap');
 
 :root {
-  /* VN text game palette - pure monochrome */
-  --meet-bg-deep: #1a1a1a;
-  --meet-glass-bg: rgba(210, 210, 210, 0.85);
-  --meet-glass-border: rgba(0, 0, 0, 0.8);
-  --meet-text-primary: #111;
-  --meet-text-secondary: rgba(0, 0, 0, 0.5);
+  /* Dark elegant base */
+  --meet-bg-deep: #14121c;
+  --meet-glass-bg: rgba(255, 255, 255, 0.78);
+  --meet-glass-border: rgba(255, 255, 255, 0.4);
+  --meet-glass-dark-bg: rgba(24, 22, 34, 0.92);
+  --meet-glass-dark-border: rgba(255, 255, 255, 0.1);
+  --meet-text-primary: rgba(30, 30, 50, 0.88);
+  --meet-text-secondary: rgba(30, 30, 50, 0.5);
   --meet-text-light: rgba(255, 255, 255, 0.92);
 
-  /* No accent color - pure black/white */
-  --meet-accent: #fff;
-  --meet-accent-glow: rgba(255, 255, 255, 0.2);
-  --meet-accent-soft: rgba(255, 255, 255, 0.08);
+  /* Rose accent */
+  --meet-accent: #f472b6;
+  --meet-accent-deep: #db2777;
+  --meet-accent-glow: rgba(244, 114, 182, 0.35);
+  --meet-accent-soft: rgba(244, 114, 182, 0.12);
 
-  /* VN serif font */
+  /* Serif kept for titles / narration */
   --meet-font: 'Noto Serif SC', 'SimSun', 'STSong', serif;
 
-  /* Sharp corners, no blur */
-  --meet-radius: 0px;
+  /* Soft glass corners */
+  --meet-radius: 24px;
 }
 
 .meet-player {
@@ -31,11 +34,11 @@
   position: relative;
 }
 
-/* Noise/grain texture overlay for hand-drawn feel */
+/* Noise/grain texture overlay, subtle */
 .meet-noise-overlay {
   position: absolute;
   top: 0; left: 0; width: 100%; height: 100%;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.08'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
   pointer-events: none;
   z-index: 1;
 }

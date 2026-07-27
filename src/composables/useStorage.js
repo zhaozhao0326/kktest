@@ -35,35 +35,17 @@ export function useStorage() {
   const sharedStorageComposableApi = getSharedStorageComposableApi()
   if (sharedStorageComposableApi) return sharedStorageComposableApi
   const { handleError } = useErrorHandler(), { showToast } = useToast()
-  const bootstrapStore = useBootstrapStore()
-  const accessStore = useAccessControlStore()
+  const bootstrapStore = useBootstrapStore(), accessStore = useAccessControlStore()
   let storageApi = /** @type {import('./storage/storageContracts').StorageBridgeApi | null} */ (null)
   const mediaController = createMediaSnapshotController()
-  const SAVE_DELAY_SMALL_MS = 200
-  const SAVE_DELAY_MEDIUM_MS = 900
-  const SAVE_DELAY_LARGE_MS = 2000
-  const SAVE_DELAY_HUGE_MS = 4500
-  const SNAPSHOT_SIZE_MEDIUM_BYTES = 25 * 1024 * 1024
-  const SNAPSHOT_SIZE_LARGE_BYTES = 80 * 1024 * 1024
-  const SNAPSHOT_SIZE_HUGE_BYTES = 120 * 1024 * 1024
-  const SAVE_MIN_INTERVAL_LARGE_MS = 3500
-  const SAVE_MIN_INTERVAL_HUGE_MS = 12000
-  const IDLE_SAVE_TIMEOUT_MS = 2500
-  const MEDIA_GC_EVERY_SAVES = 24
-  const LOCAL_BACKUP_INTERVAL_MS = 60 * 1000
-  const LOCAL_BACKUP_FULL_MAX_BYTES = 6 * 1024 * 1024
-  const LOCAL_BACKUP_MSG_LIMIT_NORMAL = 30
-  const LOCAL_BACKUP_MSG_LIMIT_LARGE = 10
+  const SAVE_DELAY_SMALL_MS = 200, SAVE_DELAY_MEDIUM_MS = 900, SAVE_DELAY_LARGE_MS = 2000, SAVE_DELAY_HUGE_MS = 4500
+  const SNAPSHOT_SIZE_MEDIUM_BYTES = 25 * 1024 * 1024, SNAPSHOT_SIZE_LARGE_BYTES = 80 * 1024 * 1024, SNAPSHOT_SIZE_HUGE_BYTES = 120 * 1024 * 1024
+  const SAVE_MIN_INTERVAL_LARGE_MS = 3500, SAVE_MIN_INTERVAL_HUGE_MS = 12000, IDLE_SAVE_TIMEOUT_MS = 2500, MEDIA_GC_EVERY_SAVES = 24
+  const LOCAL_BACKUP_INTERVAL_MS = 60 * 1000, LOCAL_BACKUP_FULL_MAX_BYTES = 6 * 1024 * 1024, LOCAL_BACKUP_MSG_LIMIT_NORMAL = 30, LOCAL_BACKUP_MSG_LIMIT_LARGE = 10
   const savePolicy = {
-    mediumBytes: SNAPSHOT_SIZE_MEDIUM_BYTES,
-    largeBytes: SNAPSHOT_SIZE_LARGE_BYTES,
-    hugeBytes: SNAPSHOT_SIZE_HUGE_BYTES,
-    smallDelayMs: SAVE_DELAY_SMALL_MS,
-    mediumDelayMs: SAVE_DELAY_MEDIUM_MS,
-    largeDelayMs: SAVE_DELAY_LARGE_MS,
-    hugeDelayMs: SAVE_DELAY_HUGE_MS,
-    largeMinIntervalMs: SAVE_MIN_INTERVAL_LARGE_MS,
-    hugeMinIntervalMs: SAVE_MIN_INTERVAL_HUGE_MS
+    mediumBytes: SNAPSHOT_SIZE_MEDIUM_BYTES, largeBytes: SNAPSHOT_SIZE_LARGE_BYTES, hugeBytes: SNAPSHOT_SIZE_HUGE_BYTES,
+    smallDelayMs: SAVE_DELAY_SMALL_MS, mediumDelayMs: SAVE_DELAY_MEDIUM_MS, largeDelayMs: SAVE_DELAY_LARGE_MS, hugeDelayMs: SAVE_DELAY_HUGE_MS,
+    largeMinIntervalMs: SAVE_MIN_INTERVAL_LARGE_MS, hugeMinIntervalMs: SAVE_MIN_INTERVAL_HUGE_MS
   }
   const {
     applyMediaMapToSnapshot,
@@ -89,6 +71,7 @@ export function useStorage() {
     trimMessagesIfNeeded
   } = storageRuntime
   let persistenceController = /** @type {import('./storage/storageContracts').StoragePersistenceController | null} */ (null)
+  let hasLoadedSnapshot = false
   const storageSaveController = createStorageSaveController({
     keyAppData: KEY_APP_DATA,
     savePolicy,
@@ -117,21 +100,20 @@ export function useStorage() {
     handleError
   })
   const {
-    flushSaveNow,
+    flushSaveNow: flushSaveNowImpl,
     getLastLocalUpdatedAt,
     scheduleSave: scheduleSaveImpl,
     setLastLocalUpdatedAt,
     setPersistedMessageContactIds,
     setPersistedSnapshotSummary
   } = storageSaveController
-
   function canAutoPersist() {
+    if (!hasLoadedSnapshot) return false
     if (bootstrapStore.isHydrating) return false
     if (bootstrapStore.loadError) return false
     if (!accessStore.canAccessApp) return false
     return true
   }
-
   persistenceController = createStoragePersistenceController({
     hasUserData,
     showToast,
@@ -174,6 +156,10 @@ export function useStorage() {
     return partitionContactMessages(packed)
   }
   function applyAppDataToState(appData) { return applyRuntimeDataToState(appData, scheduleSave) }
+  function flushSaveNow(options = {}) {
+    if (!canAutoPersist()) return Promise.resolve(null)
+    return flushSaveNowImpl(options)
+  }
   function scheduleSave(options = {}) {
     if (bootstrapStore.isHydrating) {
       deferStorageSaveAfterHydration()
@@ -206,6 +192,7 @@ export function useStorage() {
       setLastLocalUpdatedAt(loaded.snapshot.localUpdatedAt)
       await hydrateSnapshotMedia(loaded.snapshot)
       applyAppDataToState(loaded.snapshot)
+      hasLoadedSnapshot = true
       if (loaded.shouldMigrateInlineMessages) scheduleSave()
       return loaded.snapshot
     } catch (error) {
@@ -246,7 +233,8 @@ export function useStorage() {
     const snapshot = snapshotAppData({ inlineMessages: true, localUpdatedAt: getLastLocalUpdatedAt() }).snapshot
     return {
       localUpdatedAt: Math.max(0, Number(snapshot?.localUpdatedAt || getLastLocalUpdatedAt()) || 0),
-      hasUserData: hasUserData(snapshot)
+      hasUserData: hasUserData(snapshot),
+      isHydrated: hasLoadedSnapshot && !bootstrapStore.isHydrating && !bootstrapStore.loadError, canPersist: canAutoPersist()
     }
   }
   storageApi = {

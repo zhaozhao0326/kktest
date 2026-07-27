@@ -111,6 +111,7 @@ import { formatBeijingLocale } from '../../../utils/beijingTime'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
+  contactId: { type: String, default: '' },
   contactName: { type: String, default: '' },
   records: { type: Array, default: () => [] }
 })
@@ -216,6 +217,7 @@ async function playVoice(text, recordId, lineIdx) {
         }
         voicePlayer.play({
           msgId: `${recordId}-${lineIdx}-${i}`,
+          contactId: props.contactId || '',
           isUser: false,
           text: segment,
           emotion: 'normal',

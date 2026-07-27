@@ -18,14 +18,15 @@
       <i class="ph ph-clock-counter-clockwise"></i>
     </button>
 
-    <!-- Auto play -->
+    <!-- Auto play / skip -->
     <button
       class="vn-circle-btn"
-      :class="{ 'is-active': isAuto }"
+      :class="{ 'is-active': mode === 'auto', 'is-skip': mode === 'skip' }"
       @click.stop="emit('toggle-auto')"
-      aria-label="自动播放"
+      :aria-label="mode === 'skip' ? '快进' : '自动播放'"
     >
-      <span v-if="isAuto" class="vn-auto-label">AUTO</span>
+      <span v-if="mode === 'auto'" class="vn-auto-label">AUTO</span>
+      <i v-else-if="mode === 'skip'" class="ph ph-fast-forward"></i>
       <i v-else class="ph ph-play"></i>
     </button>
 
@@ -38,7 +39,7 @@
 
 <script setup>
 defineProps({
-  isAuto: { type: Boolean, default: false },
+  mode: { type: String, default: 'off' }, // 'off' | 'auto' | 'skip'
   isGenerating: { type: Boolean, default: false }
 })
 
@@ -81,6 +82,12 @@ const emit = defineEmits([
 .vn-circle-btn.is-active {
   background: rgba(99, 102, 241, 0.6);
   border-color: rgba(99, 102, 241, 0.5);
+  color: #fff;
+}
+
+.vn-circle-btn.is-skip {
+  background: rgba(249, 115, 22, 0.6);
+  border-color: rgba(249, 115, 22, 0.5);
   color: #fff;
 }
 

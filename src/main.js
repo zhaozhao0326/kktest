@@ -5,12 +5,14 @@ import router from './router'
 import { installIosContextMenuPolyfill } from './bootstrap/installIosContextMenuPolyfill'
 import { installViewportSync } from './bootstrap/installViewportSync'
 import { registerServiceWorker } from './bootstrap/registerServiceWorker'
+import { createAppRuntimeBootstrap } from './bootstrap/appRuntime'
 import { useAccessControl } from './composables/useAccessControl'
-import { useBootstrapStore } from './stores/bootstrap'
+import { useAccessControlStore } from './stores/accessControl'
 import { useStorage } from './composables/useStorage'
 import { useGiftsStore } from './stores/gifts'
 import { registerCustomGiftSource } from './data/gifts'
 import { useCloudSync } from './composables/useCloudSync'
+import { installDebugLogCapture } from './composables/useDebugLog'
 import '@phosphor-icons/web/regular'
 import '@phosphor-icons/web/bold'
 import '@phosphor-icons/web/fill'
@@ -18,45 +20,54 @@ import './style.css'
 
 installIosContextMenuPolyfill()
 installViewportSync()
+installDebugLogCapture()
 
 const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
 app.use(router)
 const storageApi = useStorage()
-const bootstrapStore = useBootstrapStore()
+const accessStore = useAccessControlStore()
 const giftsStore = useGiftsStore()
 registerCustomGiftSource(() => giftsStore.customGifts)
 app.mount('#app')
 registerServiceWorker()
+
+const runtimeBootstrap = createAppRuntimeBootstrap({
+  accessStore,
+  storageApi,
+  bootstrapCloudSync: (options = {}) => {
+    const { bootstrapCloudSync } = useCloudSync(storageApi)
+    return bootstrapCloudSync(options)
+  },
+  onStorageLoadError: (err) => {
+    console.warn('Initial app data load failed:', err)
+  },
+  onCloudSyncError: (err) => {
+    console.warn('Cloud sync bootstrap failed:', err)
+  }
+})
+
+runtimeBootstrap.startAccessWatcher()
 
 async function bootstrap() {
   try {
     const { bootstrapAccessControl } = useAccessControl()
     const canAccessApp = await bootstrapAccessControl()
     if (!canAccessApp) {
-      bootstrapStore.finishHydration()
       return
     }
   } catch (err) {
     console.warn('Access control bootstrap failed:', err)
-    bootstrapStore.finishHydration(err)
+    accessStore.blockAccess('访问验证服务暂不可用', {
+      enabled: true,
+      configured: false,
+      errorCode: 'service_unavailable'
+    })
     return
   }
 
-  try {
-    await storageApi.loadAll()
-  } catch (err) {
-    console.warn('Initial app data load failed:', err)
-  }
-
-  // Bootstrap cloud sync after mount (non-blocking)
-  try {
-    const { bootstrapCloudSync } = useCloudSync(storageApi)
-    void bootstrapCloudSync()
-  } catch (err) {
-    console.warn('Cloud sync bootstrap failed:', err)
-  }
+  await runtimeBootstrap.ensureLoaded()
 }
 
 void bootstrap()

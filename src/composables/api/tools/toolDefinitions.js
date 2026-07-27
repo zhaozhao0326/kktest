@@ -12,6 +12,26 @@
  *   plannerStore, livenessStore, stickersStore, activeChat, makeMsgId }
  */
 
+const DIARY_ASSISTANT_VIEWPOINT_PATTERNS = [
+  /作为\s*(?:ai|人工智能|助手)/i,
+  /我是\s*(?:ai|人工智能|助手)/i,
+  /\b(?:as an ai|as your ai|as a chatbot|as an assistant)\b/i,
+  /\buser\b/i,
+  /用户/
+]
+
+function normalizeDiaryText(value) {
+  return String(value || '')
+    .replace(/\r\n?/g, '\n')
+    .trim()
+}
+
+function looksLikeAssistantViewDiary(content) {
+  const text = normalizeDiaryText(content)
+  if (!text) return false
+  return DIARY_ASSISTANT_VIEWPOINT_PATTERNS.some(pattern => pattern.test(text))
+}
+
 const TOOL_DEFINITIONS = [
   // ── 日程 / 记忆 / 内部状态 ──
   {
@@ -46,23 +66,32 @@ const TOOL_DEFINITIONS = [
   // ── 日记 ──
   {
     name: 'write_diary',
-    description: '写一篇日记条目',
+    description: '写一篇“用户本人”的日记条目。仅在用户明确要求写/补记日记，或明确表示要把经历记进日记时调用；正文必须用用户自己的视角记录经历和感受，不能写成 AI/角色视角。',
     parameters: {
       type: 'object',
       properties: {
-        content: { type: 'string', description: '日记内容' },
+        content: { type: 'string', description: '日记正文，必须以用户第一人称记录用户自己的经历、感受或想法，不能写成 AI/角色视角' },
         mood: { type: 'string', description: '心情 emoji，可选' }
       },
       required: ['content']
     },
     settingsGuard: 'allowPlannerAI',
     async execute(args, ctx) {
-      const { plannerStore } = ctx
+      const { plannerStore, activeChat } = ctx
+      const content = normalizeDiaryText(args.content)
+      if (!content) {
+        return { success: false, error: 'Diary content cannot be empty' }
+      }
+      if (looksLikeAssistantViewDiary(content)) {
+        return { success: false, error: '日记必须以用户视角记录，不能使用AI或角色视角' }
+      }
       const entry = plannerStore.addDiaryEntry({
-        content: args.content,
-        mood: args.mood || '',
-        date: new Date().toISOString().slice(0, 10),
-        shareWithAI: true
+        content,
+        mood: normalizeDiaryText(args.mood),
+        shareWithAI: true,
+        source: 'assistant',
+        sourceChatId: activeChat?.id || '',
+        sourceContactId: activeChat?.id || ''
       })
       return { success: true, result: { diaryId: entry.id } }
     }

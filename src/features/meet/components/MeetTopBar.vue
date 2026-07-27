@@ -10,31 +10,28 @@ const emit = defineEmits(['back', 'menu'])
 
 <template>
   <div class="meet-top-bar">
-    <div class="meet-bar-left">
-      <button class="meet-sys-btn" @click="emit('back')">
-        <span>返回</span>
-      </button>
-      <div v-if="location" class="meet-info-tag">
-        {{ location }}
-      </div>
-    </div>
+    <button class="meet-glass-btn" @click="emit('back')">
+      <i class="ph-bold ph-caret-left"></i>
+    </button>
 
     <div class="meet-bar-center">
-      <div v-if="isGenerating" class="meet-loading-indicator">
-        <div class="loading-dot"></div>
-        <div class="loading-dot"></div>
-        <div class="loading-dot"></div>
-      </div>
+      <Transition name="pill-swap" mode="out-in">
+        <div v-if="isGenerating" key="gen" class="meet-info-pill generating">
+          <i class="ph ph-circle-notch spin"></i>
+          <span>生成中…</span>
+        </div>
+        <div v-else-if="location || timeOfDay" key="info" class="meet-info-pill">
+          <i class="ph-fill ph-map-pin"></i>
+          <span class="pill-text">{{ location }}</span>
+          <span v-if="location && timeOfDay" class="pill-dot"></span>
+          <span v-if="timeOfDay" class="pill-time">{{ timeOfDay }}</span>
+        </div>
+      </Transition>
     </div>
 
-    <div class="meet-bar-right">
-      <div v-if="timeOfDay" class="meet-info-tag">
-        {{ timeOfDay }}
-      </div>
-      <button class="meet-sys-btn" @click="emit('menu')">
-        <span>菜单</span>
-      </button>
-    </div>
+    <button class="meet-glass-btn" @click="emit('menu')">
+      <i class="ph-bold ph-list"></i>
+    </button>
   </div>
 </template>
 
@@ -45,72 +42,117 @@ const emit = defineEmits(['back', 'menu'])
   left: 0;
   right: 0;
   z-index: 50;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: flex-start;
-  padding: var(--app-pt-lg, 48px) 20px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: var(--app-pt-lg, 48px) 16px 12px;
   pointer-events: none;
 }
 
-.meet-bar-left, .meet-bar-right {
+.meet-glass-btn {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 50%;
   display: flex;
   align-items: center;
-  gap: 10px;
-  pointer-events: auto;
-}
-
-.meet-bar-right { justify-content: flex-end; }
-
-.meet-sys-btn {
-  background: #000;
-  color: #fff;
-  border: 2px solid #000;
-  padding: 8px 18px;
-  font-size: 14px;
-  font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
-  letter-spacing: 4px;
-  font-weight: 700;
+  justify-content: center;
+  font-size: 17px;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
   cursor: pointer;
-  transition: background 0.2s;
+  pointer-events: auto;
+  transition: transform 0.2s ease, background 0.2s ease;
 }
 
-.meet-sys-btn:hover {
-  background: #333;
+.meet-glass-btn:active {
+  transform: scale(0.88);
+  background: rgba(255, 255, 255, 0.2);
 }
 
-.meet-sys-btn:active {
-  background: #444;
+.meet-bar-center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
 }
 
-.meet-info-tag {
-  background: rgba(0, 0, 0, 0.7);
-  color: rgba(255, 255, 255, 0.8);
-  padding: 6px 14px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 2px;
+.meet-info-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 8px 16px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.32);
   border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  pointer-events: auto;
   font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
 }
 
-.meet-loading-indicator {
-  display: flex;
-  gap: 6px;
+.meet-info-pill i {
+  font-size: 13px;
+  color: rgba(244, 114, 182, 0.85);
+  flex-shrink: 0;
 }
 
-.loading-dot {
-  width: 6px;
-  height: 6px;
-  background: #fff;
+.pill-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill-dot {
+  width: 3px;
+  height: 3px;
   border-radius: 50%;
-  animation: pulse 1.4s infinite ease-in-out both;
+  background: rgba(255, 255, 255, 0.35);
+  flex-shrink: 0;
 }
 
-.loading-dot:nth-child(2) { animation-delay: 0.2s; }
-.loading-dot:nth-child(3) { animation-delay: 0.4s; }
+.pill-time {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.6);
+}
 
-@keyframes pulse {
-  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
-  40% { opacity: 1; transform: scale(1.1); }
+.meet-info-pill.generating {
+  background: rgba(244, 114, 182, 0.18);
+  border-color: rgba(244, 114, 182, 0.35);
+  color: #fbcfe8;
+}
+
+.meet-info-pill.generating i {
+  color: #f9a8d4;
+}
+
+.spin {
+  animation: pillSpin 1s linear infinite;
+}
+
+@keyframes pillSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.pill-swap-enter-active,
+.pill-swap-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.pill-swap-enter-from,
+.pill-swap-leave-to {
+  opacity: 0;
+  transform: scale(0.92);
 }
 </style>

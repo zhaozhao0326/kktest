@@ -1,4 +1,4 @@
-import { sanitizeMiniMaxGroupId } from '../../utils/minimaxConfig'
+import { sanitizeMiniMaxGroupId, sanitizeMiniMaxVoiceId } from '../../utils/minimaxConfig'
 
 const MINIMAX_TUNE_VERSION = 'natural-v1'
 const MINIMAX_TUNE_STRENGTH = 0.7
@@ -26,25 +26,6 @@ const MINIMAX_EMOTION_ADJUSTMENTS = Object.freeze({
   sleepy: { speed: -0.12, pitch: -0.3, vol: -0.08 },
   proud: { speed: 0.04, pitch: 0.15, vol: 0.05 },
   nervous: { speed: 0.08, pitch: 0.2, vol: 0.04 }
-})
-const MINIMAX_API_EMOTION_MAP = Object.freeze({
-  normal: 'calm',
-  neutral: 'calm',
-  happy: 'happy',
-  sad: 'sad',
-  angry: 'angry',
-  surprised: 'surprised',
-  fearful: 'fearful',
-  confused: 'calm',
-  thinking: 'calm',
-  laughing: 'happy',
-  excited: 'fluent',
-  shy: 'whisper',
-  worried: 'calm',
-  love: 'calm',
-  sleepy: 'whisper',
-  proud: 'fluent',
-  nervous: 'calm'
 })
 const MINIMAX_KNOWN_MODELS = new Set([
   'speech-2.8-hd',
@@ -102,11 +83,6 @@ export function normalizeEmotionKey(value) {
 export function extractEmotionTag(text) {
   const match = String(text || '').match(/\[emotion:(\w+)\]/i)
   return match ? normalizeEmotionKey(match[1]) : 'normal'
-}
-
-function resolveMiniMaxApiEmotion(value) {
-  const key = normalizeEmotionKey(value)
-  return MINIMAX_API_EMOTION_MAP[key] || 'calm'
 }
 
 export function normalizeMiniMaxModelName(value) {
@@ -346,14 +322,15 @@ function extractMiniMaxAudio(data) {
 function shouldRetryMiniMaxWithUrl(result) {
   if (!result || result.networkError) return false
   if (result.ok && result.audio) return false
-  if (result.status === 400 || result.status === 404 || result.status === 415 || result.status === 422) return true
-  if (result.statusCode === 2013) return true
+  if (result.statusCode === 2013 || result.statusCode === 20132) return false
+  if (result.status === 400 || result.status === 422) return false
+  if (result.status === 404 || result.status === 415) return true
   return !result.audio
 }
 
 function isMiniMaxInvalidParams(result) {
   if (!result || result.networkError) return false
-  return result.statusCode === 2013 || result.status === 400 || result.status === 422
+  return result.statusCode === 2013 || result.statusCode === 20132 || result.status === 400 || result.status === 422
 }
 
 function isLikelyMiniMaxAuthOrRegionError(result) {
@@ -392,8 +369,8 @@ function formatMiniMaxFailure(failure, triedEndpoints) {
   if (isLikelyMiniMaxAuthOrRegionError(result)) {
     msg += ' Check API key and endpoint region: global https://api.minimax.io/v1/t2a_v2, China https://api.minimaxi.com/v1/t2a_v2.'
   }
-  if (result.statusCode === 2013) {
-    msg += ' Code 2013 means invalid params: verify model/voice_id and remove unsupported interjection tags like "(...)" in text.'
+  if (result.statusCode === 2013 || result.statusCode === 20132) {
+    msg += ' Code ' + result.statusCode + ' means invalid params or voice_id: verify model/voice_id and remove unsupported interjection tags like "(...)" in text.'
   }
 
   if (triedEndpoints.length > 1) {
@@ -416,7 +393,7 @@ export async function synthesizeMiniMax({ endpoint, apiKey, groupId, model, text
   const normalizedModel = normalizeMiniMaxModelName(model)
   const rawText = String(text || '').trim()
   const normalizedText = normalizeMiniMaxText(rawText, normalizedModel) || rawText
-  const normalizedVoiceId = String(voiceId || '').trim()
+  const normalizedVoiceId = sanitizeMiniMaxVoiceId(voiceId)
   if (!normalizedVoiceId) throw new Error('MiniMax voice ID is not configured')
 
   const endpointCandidates = buildMiniMaxEndpointCandidates(normalizedEndpoint)
@@ -425,14 +402,13 @@ export async function synthesizeMiniMax({ endpoint, apiKey, groupId, model, text
   const tuning = {
     speed: roundTo(clampNumber(voiceTuning?.speed, MINIMAX_VOICE_LIMITS.speed.min, MINIMAX_VOICE_LIMITS.speed.max, 1), 2),
     vol: roundTo(clampNumber(voiceTuning?.vol, MINIMAX_VOICE_LIMITS.vol.min, MINIMAX_VOICE_LIMITS.vol.max, 1), 2),
-    pitch: apiPitch === 0 ? 0 : apiPitch,
-    emotion: resolveMiniMaxApiEmotion(voiceTuning?.emotion)
+    pitch: apiPitch === 0 ? 0 : apiPitch
   }
 
   const buildBody = (outputFormat, options = {}) => {
     const requestText = String(options.text || normalizedText || rawText).trim()
     const minimalVoice = options.minimalVoice === true
-    const disableEmotion = options.disableEmotion === true
+    const neutralPitch = options.neutralPitch === true
 
     const voiceSetting = minimalVoice
       ? { voice_id: normalizedVoiceId }
@@ -440,9 +416,8 @@ export async function synthesizeMiniMax({ endpoint, apiKey, groupId, model, text
           voice_id: normalizedVoiceId,
           speed: tuning.speed,
           vol: tuning.vol,
-          pitch: tuning.pitch
+          pitch: neutralPitch ? 0 : tuning.pitch
         }
-    if (!disableEmotion) voiceSetting.emotion = tuning.emotion
 
     return {
       model: normalizedModel,
@@ -511,29 +486,37 @@ export async function synthesizeMiniMax({ endpoint, apiKey, groupId, model, text
     }
   }
 
-  const failures = []
-  const primaryRequestOptions = { text: rawText || normalizedText, minimalVoice: false, disableEmotion: false }
-  const fallbackRequestOptions = { text: normalizedText || rawText, minimalVoice: true, disableEmotion: true }
-
-  for (const requestUrl of endpointCandidates) {
-    let result = await requestMiniMax(requestUrl, 'hex', primaryRequestOptions)
+  const requestWithOutputFallback = async (requestUrl, requestOptions) => {
+    let result = await requestMiniMax(requestUrl, 'hex', requestOptions)
     if (shouldRetryMiniMaxWithUrl(result)) {
-      const urlResult = await requestMiniMax(requestUrl, 'url', primaryRequestOptions)
+      const urlResult = await requestMiniMax(requestUrl, 'url', requestOptions)
       if ((urlResult.ok && urlResult.audio) || (!result.ok && !urlResult.networkError)) {
         result = urlResult
       }
     }
+    return result
+  }
+
+  const failures = []
+  const primaryRequestOptions = { text: rawText || normalizedText, minimalVoice: false }
+  const fallbackRequestOptions = [
+    ...(tuning.pitch !== 0
+      ? [{ text: normalizedText || rawText, minimalVoice: false, neutralPitch: true }]
+      : []),
+    { text: normalizedText || rawText, minimalVoice: true }
+  ]
+
+  for (const requestUrl of endpointCandidates) {
+    let result = await requestWithOutputFallback(requestUrl, primaryRequestOptions)
 
     if (!(result.ok && result.audio) && isMiniMaxInvalidParams(result)) {
-      let fallbackResult = await requestMiniMax(requestUrl, 'hex', fallbackRequestOptions)
-      if (shouldRetryMiniMaxWithUrl(fallbackResult)) {
-        const fallbackUrlResult = await requestMiniMax(requestUrl, 'url', fallbackRequestOptions)
-        if ((fallbackUrlResult.ok && fallbackUrlResult.audio) || (!fallbackResult.ok && !fallbackUrlResult.networkError)) {
-          fallbackResult = fallbackUrlResult
+      for (const requestOptions of fallbackRequestOptions) {
+        const fallbackResult = await requestWithOutputFallback(requestUrl, requestOptions)
+        if ((fallbackResult.ok && fallbackResult.audio) || (!result.ok && !fallbackResult.networkError)) {
+          result = fallbackResult
         }
-      }
-      if ((fallbackResult.ok && fallbackResult.audio) || (!result.ok && !fallbackResult.networkError)) {
-        result = fallbackResult
+        if (result.ok && result.audio) break
+        if (!isMiniMaxInvalidParams(result)) break
       }
     }
 

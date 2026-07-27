@@ -126,7 +126,7 @@ export function isPushSupported() {
 export async function fetchPushConfig(options = {}) {
   const apiBase = normalizeApiBase(options.apiBase)
   try {
-    const res = await fetch(toUrl('/push-config', apiBase), {
+    const res = await fetch(toUrl('/push?action=config', apiBase), {
       method: 'GET',
       headers: { 'Accept': 'application/json' }
     })
@@ -277,7 +277,7 @@ export async function sendPushViaServer(notification, options = {}) {
   }
 
   try {
-    const res = await fetch(toUrl('/push-send', apiBase), {
+    const res = await fetch(toUrl('/push?action=send', apiBase), {
       method: 'POST',
       headers,
       body: JSON.stringify({

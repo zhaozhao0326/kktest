@@ -13,6 +13,7 @@
   <CallHistoryModal
     v-if="callHistoryVisible"
     :visible="callHistoryVisible"
+    :contact-id="contact?.id || ''"
     :contact-name="contact?.name || ''"
     :records="callHistoryRecords"
     @close="$emit('close-call-history')"

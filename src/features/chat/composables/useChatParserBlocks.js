@@ -22,6 +22,7 @@ export function useChatParserBlocks(options) {
     allowAIMusicRecommend: () => store.allowAIMusicRecommend,
     allowAIMeet: () => store.allowAIMeet,
     showToolLog: () => !!store.toolCallingConfig?.showToolLog,
+    showReasoning: () => !!store.toolCallingConfig?.showReasoning,
     timestampGapMs,
     getAnimateMsgId: () => store.ui?.animateMsgId,
     isGroupChat: () => isGroupChat.value,

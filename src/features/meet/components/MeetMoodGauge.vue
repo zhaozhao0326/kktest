@@ -98,15 +98,24 @@ const showDetails = ref(false)
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background: rgba(0, 0, 0, 0.8);
-  border: 1px solid #444;
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
   pointer-events: auto;
+}
+
+.mood-float-bubble.positive {
+  border-color: rgba(244, 114, 182, 0.4);
+  background: rgba(244, 114, 182, 0.16);
 }
 
 .mood-float-name {
   font-size: 0.8rem;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.75);
   letter-spacing: 2px;
 }
 
@@ -115,13 +124,15 @@ const showDetails = ref(false)
   font-weight: 700;
 }
 
-.positive .mood-float-value { color: #ddd; }
-.negative .mood-float-value { color: rgba(255, 255, 255, 0.4); }
+.positive .mood-float-value { color: #f9a8d4; }
+.negative .mood-float-value { color: rgba(255, 255, 255, 0.45); }
 
 .mood-float-heart {
   font-size: 0.9rem;
-  color: #999;
+  color: rgba(255, 255, 255, 0.35);
 }
+
+.positive .mood-float-heart { color: #f472b6; }
 
 /* Float transition */
 .mood-float-enter-active { transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
@@ -134,7 +145,9 @@ const showDetails = ref(false)
   position: absolute;
   inset: 0;
   z-index: 80;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -144,26 +157,31 @@ const showDetails = ref(false)
 .mood-detail-panel {
   width: 100%;
   max-width: 360px;
-  background: rgba(210, 210, 210, 0.9);
-  border: 3px solid #111;
-  padding: 24px;
+  border-radius: 24px;
+  background: rgba(28, 26, 38, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(32px) saturate(160%);
+  -webkit-backdrop-filter: blur(32px) saturate(160%);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+  padding: 24px 22px;
   font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
 }
 
 .mood-detail-title {
   font-size: 1rem;
   font-weight: 700;
-  color: #111;
-  margin-bottom: 20px;
+  color: rgba(255, 255, 255, 0.92);
+  margin-bottom: 18px;
   letter-spacing: 6px;
+  text-align: center;
 }
 
 .mood-detail-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  padding: 11px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .mood-detail-row:last-of-type { border-bottom: none; }
@@ -171,7 +189,7 @@ const showDetails = ref(false)
 .mood-detail-name {
   font-size: 0.85rem;
   font-weight: 700;
-  color: #333;
+  color: rgba(255, 255, 255, 0.8);
   min-width: 60px;
   letter-spacing: 2px;
 }
@@ -183,32 +201,34 @@ const showDetails = ref(false)
 }
 
 .mood-detail-hearts i {
-  font-size: 14px;
+  font-size: 15px;
   transition: all 0.3s;
 }
 
 .filled {
-  color: #555;
+  color: #f472b6;
+  filter: drop-shadow(0 0 6px rgba(244, 114, 182, 0.4));
 }
 
 .empty {
-  color: rgba(0, 0, 0, 0.15);
+  color: rgba(255, 255, 255, 0.15);
 }
 
 .mood-detail-num {
   font-size: 0.75rem;
-  color: #666;
+  color: rgba(255, 255, 255, 0.45);
   min-width: 30px;
   text-align: right;
 }
 
 .mood-detail-close {
   width: 100%;
-  margin-top: 16px;
+  margin-top: 18px;
   padding: 12px;
-  background: #000;
-  border: 2px solid #000;
-  color: #fff;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.7);
   font-size: 0.9rem;
   font-weight: 700;
   font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
@@ -217,8 +237,7 @@ const showDetails = ref(false)
   transition: all 0.2s;
 }
 
-.mood-detail-close:hover { background: #333; }
-.mood-detail-close:active { transform: scale(0.98); }
+.mood-detail-close:active { transform: scale(0.98); background: rgba(255, 255, 255, 0.14); }
 
 /* Detail transition */
 .mood-detail-enter-active { transition: opacity 0.3s; }

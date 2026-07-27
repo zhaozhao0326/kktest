@@ -1,16 +1,63 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { extractMomentMedia, estimateMomentVoiceDuration } from '../utils/momentMedia'
+import { useSettingsStore } from './settings'
 
 export const useMomentsStore = defineStore('moments', () => {
   function genId(prefix) {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   }
 
+  function getMediaPermissions() {
+    try {
+      const settings = useSettingsStore()
+      return {
+        allowImages: !!settings.allowAIImageGeneration,
+        allowVoice: !!settings.allowAIVoice
+      }
+    } catch {
+      return { allowImages: false, allowVoice: false }
+    }
+  }
+
+  function normalizeVoiceFields(source = {}) {
+    const voiceText = typeof source.voiceText === 'string' ? source.voiceText.trim() : ''
+    if (!voiceText) return { voiceText: null, voiceEmotion: null, voiceDuration: null }
+    const voiceEmotion = typeof source.voiceEmotion === 'string' && source.voiceEmotion.trim()
+      ? source.voiceEmotion.trim()
+      : null
+    const voiceDuration = Number.isFinite(source.voiceDuration) && source.voiceDuration > 0
+      ? Math.round(source.voiceDuration)
+      : estimateMomentVoiceDuration(voiceText)
+    return { voiceText, voiceEmotion, voiceDuration }
+  }
+
+  function queueImageGeneration(target, imageTags, authorId) {
+    const tagsList = (Array.isArray(imageTags) ? imageTags : [])
+      .map(tags => String(tags || '').trim())
+      .filter(Boolean)
+    if (tagsList.length === 0) return
+    target.imageGenPending = (target.imageGenPending || 0) + tagsList.length
+    import('../composables/imageGen/momentsMedia')
+      .then(({ generateMomentImageInto }) => {
+        tagsList.forEach(tags => {
+          generateMomentImageInto(target, tags, authorId)
+        })
+      })
+      .catch(() => {
+        target.imageGenPending = 0
+      })
+  }
+
   function normalizeReply(reply = {}) {
     const content = typeof reply.content === 'string' ? reply.content.trim() : ''
+    const voice = normalizeVoiceFields(reply)
     return {
       id: reply.id || genId('r'),
       content,
+      images: Array.isArray(reply.images) ? reply.images.filter(Boolean) : [],
+      ...voice,
+      imageGenPending: 0,
       authorId: reply.authorId || 'unknown',
       authorName: reply.authorName || '匿名',
       authorAvatar: Object.prototype.hasOwnProperty.call(reply, 'authorAvatar') ? reply.authorAvatar : null,
@@ -22,16 +69,28 @@ export const useMomentsStore = defineStore('moments', () => {
     }
   }
 
-  function parseInlineCommentPayload(payload) {
-    const raw = String(payload || '').trim()
-    if (!raw) return null
+  function replyHasContent(reply) {
+    return !!(reply && (reply.content || reply.voiceText || (reply.images && reply.images.length > 0)))
+  }
+
+  function parseInlineCommentPayload(payload, mediaPermissions) {
+    const rawPayload = String(payload || '').trim()
+    if (!rawPayload) return null
+
+    // 先剥离媒体标记（标记内可含冒号），再按冒号拆分定位目标
+    const media = extractMomentMedia(rawPayload, mediaPermissions)
+    const raw = media.text
+    const hasMedia = media.imageTags.length > 0 || !!media.voiceText
+
     const parts = raw.split(/[:：]/).map(x => x.trim())
     if (parts.length < 2) {
       // 兼容简写：(动态评论:内容) => 默认评论最近一条动态
+      if (!parts[0] && !hasMedia) return null
       return {
         momentId: 'latest',
         replyToReplyId: null,
-        content: parts[0] || ''
+        content: parts[0] || '',
+        media
       }
     }
 
@@ -43,14 +102,16 @@ export const useMomentsStore = defineStore('moments', () => {
       return {
         momentId,
         replyToReplyId: second,
-        content: parts.slice(2).join('：').trim()
+        content: parts.slice(2).join('：').trim(),
+        media
       }
     }
 
     return {
       momentId,
       replyToReplyId: null,
-      content: parts.slice(1).join('：').trim()
+      content: parts.slice(1).join('：').trim(),
+      media
     }
   }
 
@@ -91,10 +152,18 @@ export const useMomentsStore = defineStore('moments', () => {
   function addMoment(moment) {
     const fallbackAuthor = forumUser.value || {}
     const hasAuthorAvatar = Object.prototype.hasOwnProperty.call(moment || {}, 'authorAvatar')
+    const voice = normalizeVoiceFields(moment || {})
+    const imageTags = Array.isArray(moment?.imageTags) ? moment.imageTags : []
+    const content = moment.content || ''
+    const images = Array.isArray(moment.images) ? moment.images : []
+    if (!content && !images.length && !voice.voiceText && !imageTags.length) return null
+
     const newMoment = {
       id: moment.id || genId('p'),
-      content: moment.content || '',
-      images: Array.isArray(moment.images) ? moment.images : [],
+      content,
+      images,
+      ...voice,
+      imageGenPending: 0,
       mood: moment.mood || null,
       tags: moment.tags || [],
       authorId: moment.authorId || fallbackAuthor.id || 'user',
@@ -103,15 +172,18 @@ export const useMomentsStore = defineStore('moments', () => {
       time: moment.time || Date.now(),
       likes: moment.likes || 0,
       isLiked: moment.isLiked || false,
+      likedBy: Array.isArray(moment.likedBy) ? moment.likedBy : [],
       replies: Array.isArray(moment.replies)
-        ? moment.replies.map(normalizeReply).filter(r => r.content)
+        ? moment.replies.map(normalizeReply).filter(replyHasContent)
         : [],
       linkedChatId: moment.linkedChatId || null
     }
 
     moments.value.unshift(newMoment)
     unreadMomentIds.value.add(newMoment.id)
-    return newMoment
+    const created = moments.value[0]
+    queueImageGeneration(created, imageTags, created.authorId)
+    return created
   }
 
   function likeMoment(momentId) {
@@ -127,13 +199,27 @@ export const useMomentsStore = defineStore('moments', () => {
     }
   }
 
+  // AI 角色点赞（幂等，与用户点赞 isLiked 独立）
+  function likeMomentBy(momentId, contactId) {
+    const m = moments.value.find(x => x.id === momentId)
+    if (!m || !contactId) return false
+    if (!Array.isArray(m.likedBy)) m.likedBy = []
+    if (m.likedBy.includes(contactId)) return false
+    m.likedBy.push(contactId)
+    m.likes = (m.likes || 0) + 1
+    return true
+  }
+
   function addReply(momentId, reply) {
     const m = moments.value.find(x => x.id === momentId)
     if (m) {
       const newReply = normalizeReply(reply)
-      if (!newReply.content) return null
+      const imageTags = Array.isArray(reply?.imageTags) ? reply.imageTags : []
+      if (!replyHasContent(newReply) && imageTags.length === 0) return null
       m.replies.push(newReply)
-      return newReply
+      const created = m.replies[m.replies.length - 1]
+      queueImageGeneration(created, imageTags, created.authorId)
+      return created
     }
     return null
   }
@@ -272,16 +358,22 @@ export const useMomentsStore = defineStore('moments', () => {
     let latestReplyContent = ''
 
     // 新格式：(动态:内容) 或 (动态:内容:心情)
-    const momentRegex = /[(\uff08]\s*(?:动态|moment)\s*[:\uff1a]\s*([^:\uff1a)\uff09]+?)(?:[:\uff1a]([^)\uff09]+?))?\s*[)\uff09]/gi
+    const momentRegex = /[(\uff08]\s*(?:动态|moment)\s*[:\uff1a]\s*([^)\uff09]+?)\s*[)\uff09]/gi
     let match
+    const mediaPermissions = getMediaPermissions()
     while ((match = momentRegex.exec(text)) !== null) {
-      const content = (match[1] || '').trim()
-      const mood = (match[2] || '').trim() || null
-      if (!content) continue
+      // 内容可含 [图:...] / [语音:...] 媒体标记（标记内可含冒号），整段捕获后再拆
+      const media = extractMomentMedia(match[1], mediaPermissions)
+      const content = media.text
+      if (!content && !media.imageTags.length && !media.voiceText) continue
 
       const createdMoment = addMoment({
         content,
-        mood,
+        mood: media.mood || null,
+        imageTags: media.imageTags,
+        voiceText: media.voiceText,
+        voiceEmotion: media.voiceEmotion,
+        voiceDuration: media.voiceDuration,
         authorId: safeAuthor.id,
         authorName: safeAuthor.name,
         authorAvatar: safeAuthor.avatar
@@ -297,13 +389,14 @@ export const useMomentsStore = defineStore('moments', () => {
     // (动态评论:momentId:replyId:内容)
     const commentRegex = /[(\uff08]\s*(?:动态评论|moment-comment)\s*[:\uff1a]\s*([^)\uff09]+?)\s*[)\uff09]/gi
     while ((match = commentRegex.exec(text)) !== null) {
-      const parsed = parseInlineCommentPayload(match[1])
+      const parsed = parseInlineCommentPayload(match[1], mediaPermissions)
       if (!parsed) continue
 
       let targetId = (parsed.momentId || '').trim()
       let replyToReplyId = (parsed.replyToReplyId || '').trim()
       const replyContent = (parsed.content || '').trim()
-      if (!replyContent) continue
+      const media = parsed.media || { imageTags: [], voiceText: '', voiceEmotion: '', voiceDuration: null }
+      if (!replyContent && !media.imageTags.length && !media.voiceText) continue
 
       // 解析 latest/最新 别名
       if (/^(latest|last|最新|最近)$/i.test(targetId)) {
@@ -324,6 +417,10 @@ export const useMomentsStore = defineStore('moments', () => {
 
       const newReply = addReply(targetId, {
         content: replyContent,
+        imageTags: media.imageTags,
+        voiceText: media.voiceText,
+        voiceEmotion: media.voiceEmotion,
+        voiceDuration: media.voiceDuration,
         authorId: safeAuthor.id,
         authorName: safeAuthor.name,
         authorAvatar: safeAuthor.avatar,
@@ -501,6 +598,7 @@ export const useMomentsStore = defineStore('moments', () => {
     // CRUD
     addMoment,
     likeMoment,
+    likeMomentBy,
     addReply,
     deleteMoment,
     deleteReply,

@@ -1,11 +1,20 @@
 import { makeId } from '../../utils/id'
 import {
   CATEGORY_LABELS,
+  confirmCoreMemory,
   DEFAULT_MEMORY_SETTINGS,
   escapeRegExp,
+  getDefaultMemoryConfidence,
+  getLowConfidenceMemoryExpiry,
   initContactMemory,
+  isValidMemoryConfidence,
+  isValidMemoryEntityType,
   normalizeMemoryContent,
-  PRIORITY_ORDER
+  normalizeMemoryEntity,
+  pickHigherMemoryConfidence,
+  PRIORITY_ORDER,
+  shouldAutoEnableMemoryByConfidence,
+  upgradeMemoryConfidenceByExtractionCount
 } from './shared'
 
 // 检查关键词触发
@@ -39,11 +48,12 @@ export function addCoreMemory(contact, content, source = 'manual', extra = {}) {
 
   const normalized = normalizeMemoryContent(content)
   if (!normalized) return null
+  const now = Date.now()
 
   const existing = contact.memory.core.find(m => normalizeMemoryContent(m?.content) === normalized)
   if (existing) {
     existing.content = String(content || '').trim()
-    existing.time = Date.now()
+    existing.time = now
 
     const forceEnableSource = source === 'manual' || source === 'keyword' || source === 'manager'
     const canDisableExisting = (existing.source === 'extracted' || !existing.source) && existing.enabled !== true
@@ -76,23 +86,86 @@ export function addCoreMemory(contact, content, source = 'manual', extra = {}) {
       }
     }
 
+    const entity = normalizeMemoryEntity(extra?.entity)
+    if (entity) existing.entity = entity
+    if (isValidMemoryEntityType(extra?.entityType)) existing.entityType = extra.entityType
+
+    if (source === 'extracted') {
+      existing.extractionCount = Math.max(0, Number(existing.extractionCount || 0) || 0) + 1
+      const incomingConfidence = isValidMemoryConfidence(extra?.confidence)
+        ? extra.confidence
+        : getDefaultMemoryConfidence(source, existing.enabled)
+      let nextConfidence = isValidMemoryConfidence(existing.confidence)
+        ? pickHigherMemoryConfidence(existing.confidence, incomingConfidence)
+        : incomingConfidence
+      nextConfidence = upgradeMemoryConfidenceByExtractionCount(nextConfidence, existing.extractionCount)
+      existing.confidence = nextConfidence
+
+      if (shouldAutoEnableMemoryByConfidence(nextConfidence)) {
+        existing.enabled = true
+        existing.expiresAt = null
+        existing.lastConfirmedAt = now
+      } else if (nextConfidence === 'low' && !existing.lastConfirmedAt) {
+        existing.expiresAt = existing.expiresAt || getLowConfidenceMemoryExpiry(now)
+      } else {
+        existing.expiresAt = null
+      }
+    } else {
+      const existingConfidence = isValidMemoryConfidence(existing.confidence)
+        ? existing.confidence
+        : getDefaultMemoryConfidence(source, existing.enabled)
+      const incomingConfidence = isValidMemoryConfidence(extra?.confidence)
+        ? extra.confidence
+        : existingConfidence
+      existing.confidence = pickHigherMemoryConfidence(existingConfidence, incomingConfidence)
+      existing.expiresAt = null
+      existing.lastConfirmedAt = now
+    }
+
     return existing
   }
 
+  const explicitEnabled = typeof extra?.enabled === 'boolean' ? extra.enabled : null
   const memory = {
     id: makeId('mem'),
     content: String(content || '').trim(),
-    time: Date.now(),
+    time: now,
     source,
-    enabled: source !== 'extracted',
+    enabled: explicitEnabled == null ? source !== 'extracted' : explicitEnabled,
     priority: 'normal',
-    category: null
+    category: null,
+    confidence: getDefaultMemoryConfidence(source, explicitEnabled == null ? source !== 'extracted' : explicitEnabled),
+    entity: null,
+    entityType: null,
+    expiresAt: null,
+    extractionCount: source === 'extracted' ? 1 : 0,
+    lastConfirmedAt: source === 'extracted' ? null : now,
+    recallCount: 0,
+    lastRecalledAt: null
   }
 
   if (extra && typeof extra === 'object') {
     if (extra.priority && PRIORITY_ORDER[extra.priority] != null) memory.priority = extra.priority
     if (extra.category && CATEGORY_LABELS[extra.category]) memory.category = extra.category
     if (typeof extra.enabled === 'boolean') memory.enabled = extra.enabled
+    if (isValidMemoryConfidence(extra.confidence)) memory.confidence = extra.confidence
+    const entity = normalizeMemoryEntity(extra.entity)
+    if (entity) memory.entity = entity
+    if (isValidMemoryEntityType(extra.entityType)) memory.entityType = extra.entityType
+  }
+
+  if (source === 'extracted') {
+    memory.confidence = upgradeMemoryConfidenceByExtractionCount(memory.confidence, memory.extractionCount)
+    if (shouldAutoEnableMemoryByConfidence(memory.confidence)) {
+      memory.enabled = true
+      memory.lastConfirmedAt = now
+      memory.expiresAt = null
+    } else if (memory.confidence === 'low') {
+      memory.expiresAt = getLowConfidenceMemoryExpiry(now)
+    }
+  } else {
+    memory.expiresAt = null
+    memory.lastConfirmedAt = now
   }
 
   contact.memory.core.push(memory)
@@ -103,7 +176,23 @@ export function addCoreMemory(contact, content, source = 'manual', extra = {}) {
 export function updateCoreMemory(contact, memoryId, updates) {
   const mem = contact?.memory?.core?.find(m => m.id === memoryId)
   if (mem) {
-    Object.assign(mem, updates, { time: Date.now() })
+    const now = Date.now()
+    Object.assign(mem, updates, { time: now })
+    if (mem.source === 'extracted' && (
+      (Object.prototype.hasOwnProperty.call(updates || {}, 'enabled') && updates.enabled === true) ||
+      Object.prototype.hasOwnProperty.call(updates || {}, 'content')
+    )) {
+      confirmCoreMemory(mem, { now, source: 'promoted' })
+    } else if (!isValidMemoryConfidence(mem.confidence)) {
+      mem.confidence = getDefaultMemoryConfidence(mem.source, mem.enabled)
+    }
+
+    if (isValidMemoryConfidence(mem.confidence) && mem.confidence !== 'low') {
+      mem.expiresAt = null
+    }
+
+    mem.entity = normalizeMemoryEntity(mem.entity)
+    if (!isValidMemoryEntityType(mem.entityType)) mem.entityType = null
   }
   return mem
 }

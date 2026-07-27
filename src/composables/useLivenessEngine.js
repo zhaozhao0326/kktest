@@ -48,7 +48,7 @@ import {
 } from './liveness/duplicateDetection'
 import { buildContextMessages } from './api/contextWindow'
 import { usePlannerStore } from '../stores/planner'
-import { getBeijingDayStartTimestamp } from '../utils/beijingTime'
+import { getDayStartTimestamp } from '../utils/beijingTime'
 import { toLocalDateKey } from '../utils/dateKey'
 
 const EVENT_COALESCE_WINDOW_MS = 90 * 1000
@@ -63,7 +63,8 @@ function toPositiveNumber(value, fallback) {
 }
 
 function getStartOfLocalDay(now = Date.now()) {
-  return getBeijingDayStartTimestamp(now)
+  // 使用激活时区（默认跟随设备），主动消息日上限在用户本地的 0 点重置
+  return getDayStartTimestamp(now)
 }
 
 function getEventMergeBucket(type) {
@@ -121,7 +122,12 @@ export function useLivenessEngine() {
   let globalLastProactiveAt = 0
 
   const { startKeepAlive, stopKeepAlive } = createKeepAliveController({ store })
-  const { deliverProactiveMessage, deliverProactiveMoment } = createProactiveDelivery({
+  const {
+    deliverProactiveMessage,
+    deliverProactiveMoment,
+    deliverProactiveComment,
+    deliverProactiveLike
+  } = createProactiveDelivery({
     chatStore,
     hasRecentDuplicateAssistantMessage,
     livenessStore,
@@ -277,12 +283,28 @@ export function useLivenessEngine() {
       sinceMs: now - (24 * 60 * 60 * 1000),
       limit: 3
     })
+    // 最近动态摘要（供评论/点赞决策挑选目标；排除角色自己发的）
+    let momentsDigest = ''
+    if (allowMoments) {
+      const recentMoments = (momentsStore.sortedMoments || [])
+        .filter(m => m.authorId !== contact.id)
+        .slice(0, 5)
+      momentsDigest = recentMoments
+        .map(m => {
+          const snippet = String(m.content || (m.voiceText ? '[语音]' : '') || '[图片]').slice(0, 40)
+          const replyCount = m.replies?.length ? `，${m.replies.length}条评论` : ''
+          return `- [id:${m.id}] ${m.authorName}：${snippet}${replyCount}`
+        })
+        .join('\n')
+    }
+
     const systemPrompt = buildDecisionSystemPrompt(contact, stateDesc, event, {
       allowMoments,
       delayMin,
       delayMax,
       proactiveCount24h,
-      recentProactiveSummaries
+      recentProactiveSummaries,
+      momentsDigest
     })
 
     // 构建聊天历史上下文（复用正常聊天的 head+tail 结构）
@@ -330,6 +352,16 @@ export function useLivenessEngine() {
 
       if (decision.action === 'post_moment' && decision.momentContent && momentsStore) {
         await deliverProactiveMoment(contact, decision, config)
+        return
+      }
+
+      if (decision.action === 'comment_moment' && decision.commentContent && momentsStore) {
+        await deliverProactiveComment(contact, decision, config)
+        return
+      }
+
+      if (decision.action === 'like_moment' && momentsStore) {
+        await deliverProactiveLike(contact, decision)
         return
       }
 

@@ -5,7 +5,7 @@
     <div class="statusbar-spacer"></div>
 
     <!-- App Header -->
-    <div class="px-4 py-2 flex items-center justify-between shrink-0 z-20">
+    <div class="px-4 py-2 flex items-center justify-between shrink-0 z-20 bg-white/85 dark:bg-black/85 backdrop-blur-xl">
       <button class="w-9 h-9 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center" @click="router.push('/')">
         <i class="ph ph-caret-left text-xl text-gray-600 dark:text-white"></i>
       </button>
@@ -29,162 +29,53 @@
 
       <button class="w-9 h-9 flex items-center justify-center relative" @click="showAIPanel = true">
         <i class="ph ph-magic-wand text-2xl text-purple-500"></i>
+        <span v-if="batchGenerating || aiGenerating" class="absolute top-1 right-1 w-2 h-2 rounded-full bg-pink-500 animate-ping"></span>
       </button>
+    </div>
+
+    <!-- Batch Progress Banner -->
+    <div
+      v-if="batchGenerating"
+      class="mx-4 mt-1 mb-1 px-3.5 py-2 rounded-2xl bg-gradient-to-r from-pink-500/10 to-violet-500/10 border border-pink-200/50 dark:border-pink-500/20 flex items-center gap-2 shrink-0"
+    >
+      <i class="ph-bold ph-spinner animate-spin text-pink-500"></i>
+      <span class="text-[13px] text-pink-600 dark:text-pink-400 font-medium truncate">{{ batchProgressText || '正在编织动态...' }}</span>
     </div>
 
     <!-- Feed Tab -->
     <div v-show="currentTab === 'feed'" class="flex-1 overflow-y-auto no-scrollbar scroll-smooth relative" ref="scrollContainer">
 
       <!-- Empty State -->
-      <div v-if="momentsStore.moments.length === 0" class="flex flex-col items-center justify-center pt-32 pb-20 px-8 text-center">
+      <div v-if="momentsStore.moments.length === 0" class="flex flex-col items-center justify-center pt-28 pb-16 px-8 text-center">
         <div class="w-32 h-32 mb-6 relative">
           <div class="absolute inset-0 bg-pink-200 dark:bg-pink-900/30 rounded-full blur-2xl animate-pulse"></div>
           <i class="ph-fill ph-shooting-star text-[80px] text-pink-500 relative z-10"></i>
         </div>
         <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-2">朋友圈</h2>
-        <p class="text-gray-500 dark:text-gray-400 text-sm leading-relaxed max-w-[240px]">
-          分享日常，记录生活。<br>发布第一条动态吧！
+        <p class="text-gray-500 dark:text-gray-400 text-sm leading-relaxed max-w-[240px] mb-6">
+          分享日常，记录生活。<br>发布第一条动态，或让 AI 一键热闹起来！
         </p>
+        <button
+          class="px-6 py-2.5 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 text-white text-[14px] font-bold shadow-lg shadow-pink-500/25 active:scale-95 transition-all disabled:opacity-50"
+          :disabled="batchGenerating"
+          @click="quickBatchGenerate(5)"
+        >
+          <i class="ph-fill ph-sparkle mr-1"></i>一键生成动态
+        </button>
       </div>
 
-      <!-- Feed List -->
-      <div v-else class="pb-24 pt-2">
-        <div
+      <!-- Feed List (Twitter-style rows) -->
+      <div v-else class="pb-24">
+        <MomentFeedCard
           v-for="moment in momentsStore.sortedMoments"
           :key="moment.id"
-          class="border-b border-gray-100 dark:border-gray-800/50 pb-2 mb-2"
-        >
-          <div class="px-4 pt-3 pb-1">
-            <!-- Header -->
-            <div class="flex items-start justify-between mb-3">
-              <div class="flex gap-3">
-                <div class="relative">
-                  <div class="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-800 overflow-hidden">
-                    <template v-if="moment.authorAvatar">
-                      <img v-if="isImageLikeUrl(moment.authorAvatar)" :src="moment.authorAvatar" class="w-full h-full object-cover">
-                      <span v-else class="w-full h-full flex items-center justify-center text-sm">{{ moment.authorAvatar }}</span>
-                    </template>
-                    <span v-else class="w-full h-full flex items-center justify-center text-gray-500 font-bold">{{ moment.authorName?.[0] }}</span>
-                  </div>
-                </div>
-
-                <div class="flex flex-col">
-                  <span class="font-bold text-[15px] text-gray-900 dark:text-white leading-tight">
-                    {{ moment.authorName }}
-                  </span>
-                  <div class="flex items-center gap-1 text-[12px] text-gray-400 mt-0.5">
-                    <span>{{ formatTime(moment.time) }}</span>
-                    <span v-if="moment.mood" class="ml-1">{{ moment.mood }}</span>
-                  </div>
-                </div>
-              </div>
-
-              <button class="text-gray-400 p-1" @click="showActionSheet(moment)">
-                <i class="ph-bold ph-dots-three text-xl"></i>
-              </button>
-            </div>
-
-            <!-- Content -->
-            <div class="pl-[52px]">
-              <p class="text-[15px] text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap mb-3">
-                {{ moment.content }}
-              </p>
-
-              <!-- Images -->
-              <div v-if="moment.images && moment.images.length > 0" class="mb-3">
-                <div class="grid gap-1" :class="imageGridClass(moment.images.length)">
-                  <div v-for="(img, idx) in moment.images.slice(0, 9)" :key="idx" class="aspect-square rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
-                    <img :src="img" class="w-full h-full object-cover">
-                  </div>
-                </div>
-              </div>
-
-              <!-- Tags -->
-              <div v-if="moment.tags && moment.tags.length > 0" class="flex gap-2 mb-3 overflow-x-auto no-scrollbar">
-                <span v-for="tag in moment.tags" :key="tag" class="px-2.5 py-1 rounded-full bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400 text-xs font-medium">#{{ tag }}</span>
-              </div>
-
-              <!-- Action Bar -->
-              <div class="flex items-center justify-between pr-4 mt-2">
-                <button
-                  class="flex items-center gap-1.5 group active:scale-95 transition-transform"
-                  @click="focusReply(moment.id)"
-                >
-                  <i class="ph ph-chat-circle text-[20px] text-gray-500 dark:text-gray-400 group-hover:text-blue-500 transition-colors"></i>
-                  <span class="text-xs font-medium text-gray-500 dark:text-gray-400 group-hover:text-blue-500">{{ moment.replies?.length || 0 }}</span>
-                </button>
-
-                <button
-                  class="flex items-center gap-1.5 group active:scale-95 transition-transform"
-                  @click="toggleLike(moment)"
-                >
-                  <i
-                    :class="moment.isLiked ? 'ph-fill ph-heart text-pink-500' : 'ph ph-heart text-gray-500 dark:text-gray-400'"
-                    class="text-[20px] transition-colors group-hover:text-pink-500"
-                  ></i>
-                  <span
-                    class="text-xs font-medium transition-colors"
-                    :class="moment.isLiked ? 'text-pink-500' : 'text-gray-500 dark:text-gray-400 group-hover:text-pink-500'"
-                  >
-                    {{ moment.likes || 0 }}
-                  </span>
-                </button>
-
-                <button class="flex items-center gap-1.5 group active:scale-95 transition-transform" @click="router.push('/moments/' + moment.id)">
-                  <i class="ph ph-arrow-square-out text-[20px] text-gray-500 dark:text-gray-400 group-hover:text-green-500 transition-colors"></i>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Replies Preview -->
-          <div v-if="moment.replies && moment.replies.length > 0" class="mt-2 ml-[68px] mr-4 bg-gray-50 dark:bg-[#1C1C1E] rounded-xl p-3 space-y-2">
-            <div
-              v-for="reply in moment.replies.slice(0, 3)"
-              :key="reply.id"
-              class="text-[13px] leading-snug group/reply"
-            >
-              <span class="font-bold text-gray-800 dark:text-gray-200">{{ reply.authorName }}:</span>
-              <span v-if="reply.replyToAuthorName" class="text-gray-400 ml-1">回复 @{{ reply.replyToAuthorName }}</span>
-              <span class="text-gray-600 dark:text-gray-400 ml-1">{{ reply.content }}</span>
-              <span class="text-[10px] text-gray-300 ml-2">{{ formatTimeShort(reply.time) }}</span>
-              <button
-                class="ml-2 opacity-0 group-hover/reply:opacity-100 text-gray-400 hover:text-red-500 transition-all"
-                @click="confirmDeleteReply(moment.id, reply.id)"
-              >
-                <i class="ph-fill ph-x-circle text-sm align-middle"></i>
-              </button>
-            </div>
-            <button v-if="moment.replies.length > 3" class="text-[12px] text-blue-500" @click="router.push('/moments/' + moment.id)">
-              查看全部 {{ moment.replies.length }} 条评论
-            </button>
-          </div>
-
-          <!-- Inline Reply Input -->
-          <div class="mt-2 ml-[52px] mr-4 flex items-center gap-2">
-            <div class="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden shrink-0">
-               <img v-if="currentUserAvatar" :src="currentUserAvatar" class="w-full h-full object-cover">
-               <i v-else class="ph-fill ph-user text-xs text-gray-400 flex items-center justify-center h-full"></i>
-            </div>
-            <div class="flex-1 relative">
-              <input
-                :ref="el => { if(el) replyInputRefs[moment.id] = el }"
-                v-model="replyInputs[moment.id]"
-                type="text"
-                placeholder="评论..."
-                class="w-full bg-gray-100 dark:bg-[#1C1C1E] rounded-full pl-3 pr-8 py-1.5 text-[13px] outline-none dark:text-white"
-                @keyup.enter="submitReply(moment.id)"
-              >
-              <button
-                v-if="replyInputs[moment.id]"
-                class="absolute right-1 top-1 text-blue-500 p-0.5"
-                @click="submitReply(moment.id)"
-              >
-                <i class="ph-bold ph-paper-plane-right"></i>
-              </button>
-            </div>
-          </div>
-        </div>
+          :moment="moment"
+          @delete="showActionSheet"
+          @delete-reply="confirmDeleteReply"
+          @like="toggleLike"
+          @reply="submitReply"
+          @open-detail="openDetail"
+        />
       </div>
     </div>
 
@@ -193,7 +84,7 @@
       <!-- Profile Header -->
       <div class="px-6 pt-6 pb-4">
         <div class="flex items-center gap-4 mb-4">
-          <div class="w-16 h-16 rounded-full bg-gray-200 dark:bg-gray-800 overflow-hidden">
+          <div class="w-16 h-16 rounded-full bg-gray-200 dark:bg-gray-800 overflow-hidden ring-2 ring-pink-500/20">
             <img v-if="currentUserAvatar" :src="currentUserAvatar" class="w-full h-full object-cover">
             <i v-else class="ph-fill ph-user-circle text-6xl text-gray-300 dark:text-gray-600"></i>
           </div>
@@ -223,7 +114,7 @@
           还没有发布动态
         </div>
         <div v-for="m in myMoments" :key="m.id" class="px-4 py-3 border-b border-gray-50 dark:border-gray-800/50">
-          <p class="text-[14px] text-gray-700 dark:text-gray-300 line-clamp-3">{{ m.content }}</p>
+          <p class="text-[14px] text-gray-700 dark:text-gray-300 line-clamp-3">{{ m.content || (m.voiceText ? '[语音动态]' : '[图片动态]') }}</p>
           <div class="flex items-center gap-3 mt-2 text-[12px] text-gray-400">
             <span>{{ formatTime(m.time) }}</span>
             <span>{{ m.likes || 0 }} 赞</span>
@@ -267,75 +158,17 @@
       </div>
     </div>
 
-    <!-- New Moment Modal -->
-    <div v-if="showNewPost" class="absolute inset-0 z-50 flex flex-col bg-white dark:bg-[#1C1C1E]">
-      <div class="px-4 pt-app pb-2 flex items-center justify-between">
-        <button class="text-[16px] text-gray-600 dark:text-gray-400" @click="showNewPost = false">取消</button>
-        <button
-          class="bg-pink-500 text-white text-[14px] font-bold px-5 py-1.5 rounded-full disabled:opacity-50 disabled:scale-100 active:scale-95 transition-all"
-          :disabled="!newPost.content.trim()"
-          @click="submitPost"
-        >
-          发布
-        </button>
-      </div>
-
-      <div class="flex-1 overflow-y-auto px-5 py-2">
-        <!-- Identity Selector -->
-        <div class="flex items-center gap-3 mb-4 overflow-x-auto no-scrollbar py-2">
-          <div
-            class="flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all cursor-pointer"
-            :class="newPost.authorType === 'user' ? 'border-pink-500 bg-pink-50 dark:bg-pink-900/20' : 'border-gray-200 dark:border-gray-700'"
-            @click="newPost.authorType = 'user'"
-          >
-             <div class="w-6 h-6 rounded-full bg-gray-200 overflow-hidden">
-                <img v-if="currentUserAvatar" :src="currentUserAvatar" class="w-full h-full object-cover">
-             </div>
-             <span class="text-sm font-medium whitespace-nowrap" :class="newPost.authorType === 'user' ? 'text-pink-600 dark:text-pink-400' : 'text-gray-600 dark:text-gray-300'">{{ momentsStore.forumUser?.name || '本体' }}</span>
-           </div>
-
-          <div
-             v-for="c in forumContacts"
-            :key="c.id"
-            class="flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all cursor-pointer"
-            :class="newPost.authorType === 'contact:' + c.id ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20' : 'border-gray-200 dark:border-gray-700'"
-            @click="newPost.authorType = 'contact:' + c.id"
-          >
-             <div class="w-6 h-6 rounded-full bg-gray-200 overflow-hidden">
-                <template v-if="c.avatar">
-                   <img v-if="isImageLikeUrl(c.avatar)" :src="c.avatar" class="w-full h-full object-cover">
-                   <span v-else class="flex items-center justify-center w-full h-full text-[10px]">{{ c.avatar }}</span>
-                </template>
-             </div>
-             <span class="text-sm font-medium whitespace-nowrap" :class="newPost.authorType === 'contact:' + c.id ? 'text-purple-600 dark:text-purple-400' : 'text-gray-600 dark:text-gray-300'">{{ c.name }}</span>
-          </div>
-        </div>
-
-        <!-- Mood Selector -->
-        <div class="flex items-center gap-2 mb-4 overflow-x-auto no-scrollbar">
-          <span class="text-[12px] text-gray-400 shrink-0">心情</span>
-          <button
-            v-for="emoji in moods" :key="emoji"
-            class="w-8 h-8 rounded-full flex items-center justify-center transition-all text-lg"
-            :class="newPost.mood === emoji ? 'bg-pink-100 dark:bg-pink-900/30 scale-110' : 'hover:bg-gray-100 dark:hover:bg-gray-800'"
-            @click="newPost.mood = newPost.mood === emoji ? '' : emoji"
-          >{{ emoji }}</button>
-        </div>
-
-        <textarea
-          v-model="newPost.content"
-          class="w-full h-[35vh] text-[16px] leading-relaxed text-gray-800 dark:text-gray-200 placeholder-gray-400 outline-none resize-none bg-transparent"
-          placeholder="分享你的想法..."
-        ></textarea>
-
-        <!-- Toolbar -->
-        <div class="flex gap-4 mt-4 pt-4 border-t border-gray-100 dark:border-white/10 text-2xl text-gray-400">
-           <i class="ph ph-image"></i>
-           <i class="ph ph-hash"></i>
-           <i class="ph ph-smiley"></i>
-        </div>
-      </div>
-    </div>
+    <!-- New Moment Composer -->
+    <MomentComposer
+      :visible="showNewPost"
+      :contacts="forumContacts"
+      :user-name="momentsStore.forumUser?.name || ''"
+      :user-avatar="currentUserAvatar || ''"
+      :allow-ai-image="settingsStore.allowAIImageGeneration"
+      :resolve-author="getAuthorInfo"
+      @close="showNewPost = false"
+      @submit="onComposerSubmit"
+    />
 
     <!-- Edit Profile Modal -->
     <div v-if="showEditProfile" class="absolute inset-0 z-50 flex flex-col bg-white dark:bg-[#1C1C1E]">
@@ -389,9 +222,45 @@
         <div class="absolute top-[-20%] right-[-20%] w-[60%] h-[60%] bg-purple-400/20 rounded-full blur-[80px] pointer-events-none"></div>
         <div class="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] bg-pink-400/20 rounded-full blur-[80px] pointer-events-none"></div>
 
+        <!-- 0. One-Click Batch Generate -->
+        <div class="relative rounded-3xl p-[1.5px] bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 shadow-lg shadow-purple-500/10">
+          <div class="rounded-3xl bg-white dark:bg-[#1C1C1E] p-5 space-y-4">
+            <div class="flex items-center gap-2">
+              <i class="ph-fill ph-lightning text-xl text-pink-500"></i>
+              <div class="flex flex-col">
+                <span class="font-bold text-[16px] text-gray-900 dark:text-white">一键生成</span>
+                <span class="text-[12px] text-gray-500 dark:text-gray-400">随机挑选角色发动态，自动配上评论和点赞</span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <span class="text-[12px] text-gray-400 shrink-0">数量</span>
+              <button
+                v-for="n in [3, 5, 8]"
+                :key="n"
+                class="px-4 py-1.5 rounded-full text-[13px] font-bold transition-all"
+                :class="batchCount === n
+                  ? 'bg-gradient-to-r from-pink-500 to-violet-500 text-white shadow-md shadow-pink-500/25'
+                  : 'bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300'"
+                @click="batchCount = n"
+              >{{ n }}</button>
+            </div>
+
+            <button
+              class="w-full rounded-2xl py-3.5 font-bold text-[15px] flex items-center justify-center gap-2 bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 text-white shadow-lg shadow-purple-500/25 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              :disabled="batchGenerating || aiGenerating || forumContacts.length === 0"
+              @click="quickBatchGenerate(batchCount)"
+            >
+              <i v-if="batchGenerating" class="ph-bold ph-spinner animate-spin text-xl"></i>
+              <i v-else class="ph-fill ph-sparkle text-xl"></i>
+              <span>{{ batchGenerating ? (batchProgressText || '正在编织...') : '一键生成' }}</span>
+            </button>
+          </div>
+        </div>
+
         <!-- 1. Select Role -->
         <div class="space-y-3 relative">
-          <label class="text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">织造者 (Role)</label>
+          <label class="text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">定向织造 · 织造者 (Role)</label>
           <div class="flex gap-4 overflow-x-auto no-scrollbar py-2 -mx-2 px-2">
              <div
                v-for="c in forumContacts"
@@ -463,7 +332,7 @@
                 </div>
                 <span class="text-[11px] font-bold truncate text-gray-700 dark:text-gray-300">{{ p.authorName }}</span>
               </div>
-              <p class="text-[12px] text-gray-500 dark:text-gray-400 line-clamp-2 leading-snug">{{ p.content }}</p>
+              <p class="text-[12px] text-gray-500 dark:text-gray-400 line-clamp-2 leading-snug">{{ p.content || (p.voiceText ? '[语音]' : '[图片]') }}</p>
             </div>
           </div>
         </div>
@@ -619,7 +488,7 @@
         <div class="pt-4 pb-8">
           <button
             class="w-full relative overflow-hidden bg-black dark:bg-white text-white dark:text-black rounded-2xl py-4 font-bold text-[16px] flex items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
-            :disabled="aiGenerating || !aiGenerate.contactId"
+            :disabled="aiGenerating || batchGenerating || !aiGenerate.contactId"
             @click="generateWithAI"
           >
             <div class="absolute inset-0 bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 opacity-0 group-hover:opacity-10 transition-opacity"></div>
@@ -635,23 +504,28 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useContactsStore } from '../../../stores/contacts'
 import { useConfigsStore } from '../../../stores/configs'
 import { useMomentsStore } from '../../../stores/moments'
+import { useSettingsStore } from '../../../stores/settings'
 import { useStorage } from '../../../composables/useStorage'
 import { showConfirm } from '../../../composables/useConfirm'
 import { formatRelativeTime } from '../../../utils/relativeTime'
 import { resolveSocialAuthor } from '../../../utils/socialAuthors'
 import IosToggle from '../../../components/common/IosToggle.vue'
+import MomentFeedCard from '../components/MomentFeedCard.vue'
+import MomentComposer from '../components/MomentComposer.vue'
 import { useMomentsProfileEditor } from '../composables/useMomentsProfileEditor'
 import { useMomentsAIGeneration } from '../composables/useMomentsAIGeneration'
+import { useMomentsBatchGeneration } from '../composables/useMomentsBatchGeneration'
 
 const router = useRouter()
 const contactsStore = useContactsStore()
 const configsStore = useConfigsStore()
 const momentsStore = useMomentsStore()
+const settingsStore = useSettingsStore()
 const { scheduleSave } = useStorage()
 const forumContacts = computed(() => contactsStore.contacts.filter(c => c.type !== 'group'))
 const aiContactIdSet = computed(() => new Set(forumContacts.value.map(c => c.id)))
@@ -660,11 +534,8 @@ const relationGroups = computed(() => momentsStore.contactGroups || [])
 const currentTab = ref('feed')
 const showNewPost = ref(false)
 const showAIPanel = ref(false)
-const moods = ['😊', '😢', '😡', '🥰', '😴', '🤔', '🎉', '🌸']
+const batchCount = ref(5)
 
-const newPost = reactive({ content: '', authorType: 'user', mood: '' })
-const replyInputs = reactive({})
-const replyInputRefs = reactive({})
 const {
   closeEditProfile,
   editProfile,
@@ -682,6 +553,7 @@ const {
   aiGenerate,
   aiGenerating,
   aiGeneratingText,
+  createAIReply,
   canJoinAutoReply,
   clearAutoReplyContacts,
   generateWithAI,
@@ -699,6 +571,23 @@ const {
   scheduleSave,
   showAIPanel
 })
+const {
+  batchGenerating,
+  batchProgressText,
+  generateBatchMoments
+} = useMomentsBatchGeneration({
+  configsStore,
+  forumContacts,
+  momentsStore,
+  settingsStore,
+  scheduleSave,
+  createAIReply
+})
+
+async function quickBatchGenerate(count) {
+  showAIPanel.value = false
+  await generateBatchMoments({ count })
+}
 
 function isImageLikeUrl(value) {
   const text = String(value || '').trim()
@@ -720,37 +609,29 @@ const totalLikes = computed(() => {
   return myMoments.value.reduce((sum, m) => sum + (m.likes || 0), 0)
 })
 
-function imageGridClass(count) {
-  if (count === 1) return 'grid-cols-1 max-w-[200px]'
-  if (count <= 4) return 'grid-cols-2 max-w-[240px]'
-  return 'grid-cols-3 max-w-[300px]'
-}
-
 function formatTime(ts) {
   return formatRelativeTime(ts)
-}
-
-function formatTimeShort(ts) {
-  return formatRelativeTime(ts, { short: true })
 }
 
 function getAuthorInfo(authorType) {
   return resolveSocialAuthor(authorType, momentsStore.forumUser, contactsStore.contacts)
 }
 
-function submitPost() {
-  if (!newPost.content.trim()) return
-  const author = getAuthorInfo(newPost.authorType || 'user')
+function openDetail(momentId) {
+  router.push('/moments/' + momentId)
+}
+
+function onComposerSubmit(payload) {
+  const author = getAuthorInfo(payload.authorType)
   momentsStore.addMoment({
-    content: newPost.content.trim(),
-    mood: newPost.mood || null,
+    content: payload.content,
+    mood: payload.mood,
+    images: payload.images,
+    voiceText: payload.voiceText,
     authorId: author.id,
     authorName: author.name,
     authorAvatar: author.avatar
   })
-  newPost.content = ''
-  newPost.mood = ''
-  newPost.authorType = 'user'
   showNewPost.value = false
   scheduleSave()
 }
@@ -760,13 +641,7 @@ function toggleLike(moment) {
   scheduleSave()
 }
 
-function focusReply(momentId) {
-  const input = replyInputRefs[momentId]
-  if (input) input.focus()
-}
-
-function submitReply(momentId) {
-  const content = replyInputs[momentId]?.trim()
+function submitReply(momentId, content) {
   if (!content) return
   const author = getAuthorInfo('user')
   momentsStore.addReply(momentId, {
@@ -775,7 +650,6 @@ function submitReply(momentId) {
     authorName: author.name,
     authorAvatar: author.avatar
   })
-  replyInputs[momentId] = ''
   scheduleSave()
 }
 

@@ -1,4 +1,5 @@
 import { createFetchControl, isAbortError } from './fetchControl'
+import { prepareApiKey } from '../../utils/httpHeaders'
 
 function getNestedValue(obj, path) {
   return String(path || '')
@@ -18,7 +19,8 @@ export async function generateCustom(prompt, config = {}, options = {}) {
   }
 
   const headers = { 'Content-Type': 'application/json' }
-  if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey
+  const token = prepareApiKey(apiKey, '自定义生图 API Key')
+  if (token) headers['Authorization'] = 'Bearer ' + token
 
   const fetchControl = createFetchControl(options.signal, options.timeoutMs)
   let res
@@ -57,4 +59,3 @@ export async function generateCustom(prompt, config = {}, options = {}) {
 
   throw new Error('自定义 API 图片字段不是字符串')
 }
-

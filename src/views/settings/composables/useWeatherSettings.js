@@ -25,8 +25,8 @@ export function useWeatherSettings({ scheduleSave, showToast, store }) {
     { label: '180分钟', value: 180 }
   ]
   const TIME_ZONE_MODE_OPTIONS = [
-    { label: '默认北京', value: TIME_ZONE_MODE_BEIJING },
-    { label: '跟随设备', value: TIME_ZONE_MODE_DEVICE },
+    { label: '跟随设备（默认）', value: TIME_ZONE_MODE_DEVICE },
+    { label: '北京时间', value: TIME_ZONE_MODE_BEIJING },
     { label: '自定义', value: TIME_ZONE_MODE_CUSTOM }
   ]
 

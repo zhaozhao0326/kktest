@@ -16,8 +16,21 @@ export function useVNParser() {
     // [var:affection.小樱:+1]  [var:flags.day1:true]
     variable: /^\[var:([^:\]]+):([^\]]+)\]\s*$/,
 
+    // [if:好感度>=3] ... [else] ... [endif]
+    ifStart: /^\[if:([^\]]+)\]\s*$/,
+    elseMark: /^\[else\]\s*$/,
+    ifEnd: /^\[endif\]\s*$/,
+
     // 旁白: *text*
     narration: /^\*(.+)\*$/,
+
+    // 新格式: [dialog:角色名]text / [narration]text
+    dialogTag: /^\[dialog:([^\]]+)\]\s*(.+)$/,
+    narrationTag: /^\[narration\]\s*(.+)$/,
+
+    // [scene:教学楼后|傍晚]，以及弱模型常见的“地点：…”“时间：…”
+    sceneTag: /^\[scene:([^|\]]*)(?:\|([^\]]*))?\]\s*$/,
+    sceneMeta: /^(地点|场景|位置|时间|时段)[：:]\s*(.+)$/,
 
     // 对话: 角色名：对话内容  或  角色名: 对话内容
     dialog: /^([^：:*\[\]\n]{1,20})[：:]\s*(.+)$/
@@ -28,6 +41,96 @@ export function useVNParser() {
     'shake', 'jump', 'nod',
     'fadeOut'
   ])
+
+  function resolveSpeakerName(rawName, charMap) {
+    const name = String(rawName || '').trim()
+    if (charMap[name]) return name
+
+    const withoutCue = name.replace(/\s*[（(][^）)]{0,20}[）)]\s*$/, '').trim()
+    if (charMap[withoutCue]) return withoutCue
+    return name
+  }
+
+  function normalizePresentationLine(rawLine) {
+    let line = String(rawLine || '').trim()
+    if (!line || /^```/.test(line)) return ''
+
+    line = line.replace(/^`(.+)`$/, '$1').trim()
+    line = line.replace(/^(?:#{1,6}\s+|[-•]\s+)/, '').trim()
+    line = line.replace(/^\*\*([^*]+)\*\*\s*([：:])/, '$1$2')
+    line = line.replace(/^__([^_]+)__\s*([：:])/, '$1$2')
+
+    if (/^\*\*.+\*\*$/.test(line) || /^__.+__$/.test(line)) {
+      line = line.slice(2, -2).trim()
+    }
+
+    return line
+  }
+
+  function parseDialogLine(line, charMap) {
+    const characterNames = Object.keys(charMap).sort((a, b) => b.length - a.length)
+
+    const taggedMatch = line.match(PATTERNS.dialogTag)
+    if (taggedMatch) {
+      const vnName = resolveSpeakerName(taggedMatch[1], charMap)
+      if (characterNames.length > 0 && !charMap[vnName]) return null
+      return {
+        type: 'dialog',
+        characterId: charMap[vnName]?.contactId || vnName,
+        vnName,
+        text: taggedMatch[2].trim()
+      }
+    }
+
+    const dialogMatch = line.match(PATTERNS.dialog)
+    if (dialogMatch) {
+      const vnName = resolveSpeakerName(dialogMatch[1], charMap)
+      if (characterNames.length > 0 && !charMap[vnName]) return null
+      return {
+        type: 'dialog',
+        characterId: charMap[vnName]?.contactId || vnName,
+        vnName,
+        text: dialogMatch[2].trim()
+      }
+    }
+
+    return null
+  }
+
+  function parseSceneLine(line) {
+    const taggedMatch = line.match(PATTERNS.sceneTag)
+    if (taggedMatch) {
+      return {
+        type: 'scene',
+        location: taggedMatch[1]?.trim() || '',
+        time: taggedMatch[2]?.trim() || ''
+      }
+    }
+
+    const narrationTagMatch = line.match(PATTERNS.narrationTag)
+    const legacyNarrationMatch = line.match(PATTERNS.narration)
+    const candidate = narrationTagMatch?.[1]?.trim() || legacyNarrationMatch?.[1]?.trim() || line
+    const metaMatch = candidate.match(PATTERNS.sceneMeta)
+    if (!metaMatch) return null
+    const key = metaMatch[1]
+    const value = metaMatch[2].trim()
+    if (!value) return null
+
+    if (key === '时间' || key === '时段') {
+      return { type: 'scene', location: '', time: value }
+    }
+    return { type: 'scene', location: value, time: '' }
+  }
+
+  function appendSceneInstruction(instructions, sceneInst) {
+    const last = instructions[instructions.length - 1]
+    if (last?.type === 'scene') {
+      if (sceneInst.location) last.location = sceneInst.location
+      if (sceneInst.time) last.time = sceneInst.time
+      return
+    }
+    instructions.push(sceneInst)
+  }
 
   function parseSpriteLine(line, charMap) {
     if (!line.startsWith('[sprite:') || !line.endsWith(']')) return null
@@ -142,16 +245,16 @@ export function useVNParser() {
     let currentChoices = []
 
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim()
-      if (!line) continue
+      const rawLine = lines[i].trim()
+      if (!rawLine) continue
 
       // --- Choices block ---
-      if (PATTERNS.choicesStart.test(line)) {
+      if (PATTERNS.choicesStart.test(rawLine)) {
         inChoices = true
         currentChoices = []
         continue
       }
-      if (PATTERNS.choicesEnd.test(line)) {
+      if (PATTERNS.choicesEnd.test(rawLine)) {
         inChoices = false
         if (currentChoices.length > 0) {
           instructions.push({ type: 'choices', options: currentChoices })
@@ -159,13 +262,23 @@ export function useVNParser() {
         continue
       }
       if (inChoices) {
-        const cm = line.match(PATTERNS.choiceItem)
+        const cm = rawLine.match(PATTERNS.choiceItem)
         if (cm) {
           currentChoices.push({
             text: (cm[1] || '').trim(),
             effect: cm[2] ? cm[2].trim() : null
           })
         }
+        continue
+      }
+
+      const line = normalizePresentationLine(rawLine)
+      if (!line) continue
+
+      // --- Scene metadata ---
+      const sceneInst = parseSceneLine(line)
+      if (sceneInst) {
+        appendSceneInstruction(instructions, sceneInst)
         continue
       }
 
@@ -184,13 +297,18 @@ export function useVNParser() {
       const bgMatch = line.match(PATTERNS.bg)
       if (bgMatch) {
         const isNew = line.includes('[bg:NEW:')
-        instructions.push({
+        const backgroundInst = {
           type: 'bg',
           name: bgMatch[1].trim(),
           isNew,
           prompt: bgMatch[2] ? bgMatch[2].trim() : null,
           transition: 'fade'
-        })
+        }
+        if (instructions[instructions.length - 1]?.type === 'scene') {
+          instructions.splice(instructions.length - 1, 0, backgroundInst)
+        } else {
+          instructions.push(backgroundInst)
+        }
         continue
       }
 
@@ -198,6 +316,21 @@ export function useVNParser() {
       const spriteInst = parseSpriteLine(line, charMap)
       if (spriteInst) {
         instructions.push(spriteInst)
+        continue
+      }
+
+      // --- Conditional branch ---
+      const ifMatch = line.match(PATTERNS.ifStart)
+      if (ifMatch) {
+        instructions.push({ type: 'if', expr: ifMatch[1].trim() })
+        continue
+      }
+      if (PATTERNS.elseMark.test(line)) {
+        instructions.push({ type: 'else' })
+        continue
+      }
+      if (PATTERNS.ifEnd.test(line)) {
+        instructions.push({ type: 'endif' })
         continue
       }
 
@@ -222,23 +355,24 @@ export function useVNParser() {
         continue
       }
 
+      // --- Dialog ---
+      const dialogInst = parseDialogLine(line, charMap)
+      if (dialogInst) {
+        instructions.push(dialogInst)
+        continue
+      }
+
+      // --- Explicit narration ---
+      const taggedNarrationMatch = line.match(PATTERNS.narrationTag)
+      if (taggedNarrationMatch) {
+        instructions.push({ type: 'narration', text: taggedNarrationMatch[1].trim() })
+        continue
+      }
+
       // --- Narration ---
       const narMatch = line.match(PATTERNS.narration)
       if (narMatch) {
         instructions.push({ type: 'narration', text: narMatch[1].trim() })
-        continue
-      }
-
-      // --- Dialog ---
-      const dlgMatch = line.match(PATTERNS.dialog)
-      if (dlgMatch) {
-        const vnName = dlgMatch[1].trim()
-        instructions.push({
-          type: 'dialog',
-          characterId: charMap[vnName]?.contactId || vnName,
-          vnName,
-          text: dlgMatch[2].trim()
-        })
         continue
       }
 

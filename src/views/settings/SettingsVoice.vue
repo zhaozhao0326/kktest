@@ -115,7 +115,7 @@ import {
   STT_PROVIDER_OPTIONS,
   STT_PROVIDER_SILICONFLOW
 } from '../../utils/sttProviders'
-import { sanitizeMiniMaxGroupId } from '../../utils/minimaxConfig'
+import { sanitizeMiniMaxGroupId, sanitizeMiniMaxVoiceId } from '../../utils/minimaxConfig'
 
 const store = useSettingsStore()
 const { scheduleSave } = useStorage()
@@ -178,11 +178,20 @@ function sanitizeMiniMaxVoiceSettings() {
   const cfg = store.voiceTtsConfig
   if (!cfg) return false
 
+  let changed = false
   const nextGroupId = sanitizeMiniMaxGroupId(cfg.minimaxGroupId, cfg.minimaxEndpoint)
-  if (nextGroupId === cfg.minimaxGroupId) return false
+  if (nextGroupId !== cfg.minimaxGroupId) {
+    cfg.minimaxGroupId = nextGroupId
+    changed = true
+  }
 
-  cfg.minimaxGroupId = nextGroupId
-  return true
+  const nextVoiceId = sanitizeMiniMaxVoiceId(cfg.minimaxVoiceId)
+  if (nextVoiceId !== cfg.minimaxVoiceId) {
+    cfg.minimaxVoiceId = nextVoiceId
+    changed = true
+  }
+
+  return changed
 }
 
 onMounted(() => {
@@ -198,7 +207,7 @@ watch(
 )
 
 watch(
-  () => [store.voiceTtsConfig?.minimaxGroupId, store.voiceTtsConfig?.minimaxEndpoint],
+  () => [store.voiceTtsConfig?.minimaxGroupId, store.voiceTtsConfig?.minimaxEndpoint, store.voiceTtsConfig?.minimaxVoiceId],
   () => {
     if (sanitizeMiniMaxVoiceSettings()) scheduleSave()
   }

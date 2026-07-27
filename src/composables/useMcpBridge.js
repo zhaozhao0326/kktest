@@ -396,9 +396,13 @@ export function useMcpBridge({ settingsStore, showToast } = {}) {
   }
 
   async function discoverMcpTools({ force = false, serverIds } = {}) {
+    if (Array.isArray(serverIds) && normalizeMcpServerIds(serverIds).length === 0) {
+      return createEmptyDiscovery()
+    }
+
     const bridgeEnabled = isBridgeEnabled()
     const bridgeUrl = getBridgeUrl()
-    const enabledServers = getEnabledServers()
+    const enabledServers = getEnabledServers(serverIds)
     const selectedServerIds = normalizeMcpServerIds(serverIds)
 
     // Run bridge discovery and direct-connect discovery in parallel
@@ -479,7 +483,7 @@ export function useMcpBridge({ settingsStore, showToast } = {}) {
       })(),
 
       // Direct-connect mode
-      directConnect.discoverDirectTools({ force, serverIds: selectedServerIds })
+      directConnect.discoverDirectTools({ force, serverIds })
     ])
 
     // Merge results: combine tools and executors from both sources

@@ -10,6 +10,7 @@ import { normalizeSearchText } from '../../../utils/searchText'
 
 const HIGHLIGHT_DURATION_MS = 2000
 const SEARCH_WARMUP_TIMEOUT_MS = 800
+const JUMP_DOM_RETRY_COUNT = 8
 
 const MESSAGE_SEARCH_DOC_CACHE = new WeakMap()
 
@@ -129,6 +130,49 @@ function getCachedMessageSearchDocuments(message) {
   return documents
 }
 
+function findMessageElement(container, msgId, partKey = '') {
+  if (!container || !msgId) return null
+
+  const targetMsgId = String(msgId)
+  const targetPartKey = String(partKey || '').trim()
+  const nodes = Array.from(container.querySelectorAll('[data-msg-id]'))
+  const sameMessageNodes = nodes.filter(node => String(node?.dataset?.msgId || '') === targetMsgId)
+  if (sameMessageNodes.length === 0) return null
+
+  if (targetPartKey) {
+    const exactNode = sameMessageNodes.find(node => String(node?.dataset?.msgPart || '') === targetPartKey)
+    if (exactNode) return exactNode
+  }
+
+  return sameMessageNodes[0] || null
+}
+
+function scrollElementIntoContainer(container, el) {
+  if (!container || !el) return
+
+  const containerRect = container.getBoundingClientRect()
+  const targetRect = el.getBoundingClientRect()
+  const top = container.scrollTop + targetRect.top - containerRect.top - ((container.clientHeight - targetRect.height) / 2)
+  const nextTop = Math.max(0, top)
+
+  if (typeof container.scrollTo === 'function') {
+    container.scrollTo({ top: nextTop, behavior: 'smooth' })
+    return
+  }
+
+  container.scrollTop = nextTop
+}
+
+function waitForAnimationFrame() {
+  return new Promise(resolve => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => resolve())
+      return
+    }
+    setTimeout(resolve, 16)
+  })
+}
+
 export function useChatSearch({ store, messageWindowLimit, messageListRef }) {
   const searchVisible = ref(false)
   const searchQuery = ref('')
@@ -246,10 +290,13 @@ export function useChatSearch({ store, messageWindowLimit, messageListRef }) {
 
   async function jumpToMessage(msgId, partKey = '') {
     const msgs = store.activeChat?.msgs
-    if (!Array.isArray(msgs)) return
+    if (!Array.isArray(msgs)) return false
 
-    const msgIndex = msgs.findIndex(m => m.id === msgId)
-    if (msgIndex === -1) return
+    const targetMsgId = String(msgId ?? '').trim()
+    if (!targetMsgId) return false
+
+    const msgIndex = msgs.findIndex(m => String(m?.id ?? '') === targetMsgId)
+    if (msgIndex === -1) return false
 
     const totalMsgs = msgs.length
     const distFromEnd = totalMsgs - msgIndex
@@ -261,21 +308,26 @@ export function useChatSearch({ store, messageWindowLimit, messageListRef }) {
     await nextTick()
 
     const container = messageListRef.value?.containerRef
-    if (!container) return
+    if (!container) return false
 
     const favoritePartKey = String(partKey || '').trim()
-    const exactSelector = favoritePartKey
-      ? `[data-msg-id="${msgId}"][data-msg-part="${favoritePartKey}"]`
-      : `[data-msg-id="${msgId}"]`
-    const el = container.querySelector(exactSelector) || container.querySelector(`[data-msg-id="${msgId}"]`)
-    if (!el) return
+    let el = null
+    for (let attempt = 0; attempt < JUMP_DOM_RETRY_COUNT; attempt += 1) {
+      el = findMessageElement(container, targetMsgId, favoritePartKey)
+      if (el) break
+      await waitForAnimationFrame()
+    }
 
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    if (!el) return false
+
+    scrollElementIntoContainer(container, el)
 
     el.classList.add('search-highlight-flash')
     setTimeout(() => {
       el.classList.remove('search-highlight-flash')
     }, HIGHLIGHT_DURATION_MS)
+
+    return true
   }
 
   function openSearch() {

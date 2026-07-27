@@ -20,7 +20,14 @@ import {
   rerollSummary as rerollSummaryImpl,
   updateSummary as updateSummaryImpl
 } from './memory/summaryLifecycle'
-import { DEFAULT_MEMORY_SETTINGS, getEmbeddingConfig, getSummaryConfig as getSummaryConfigImpl, initContactMemory } from './memory/shared'
+import {
+  DEFAULT_MEMORY_SETTINGS,
+  clearContactMemoryData,
+  getEmbeddingConfig,
+  getSummaryConfig as getSummaryConfigImpl,
+  initContactMemory,
+  sweepExpiredCoreMemories
+} from './memory/shared'
 
 export { DEFAULT_MEMORY_SETTINGS, initContactMemory } from './memory/shared'
 export { runMemoryManager } from './memory/manager'
@@ -68,6 +75,7 @@ export function useMemory() {
   }
 
   function buildMemoryPrompt(contact) {
+    if (contact) sweepExpiredCoreMemories(contact)
     return buildMemoryPromptImpl(contact, { store: memoryStore })
   }
 
@@ -81,11 +89,17 @@ export function useMemory() {
     }).catch(() => {})
   }
 
+  function clearContactMemory(contact) {
+    if (!contact) return null
+    return clearContactMemoryData(contact)
+  }
+
   async function extractMemoriesWithAI(contact) {
     return extractMemoriesWithAIImpl(contact, {
       aiExtractInFlight,
       aiExtractLastAttemptAt,
-      callSummaryAPI
+      callSummaryAPI,
+      store: memoryStore
     })
   }
 
@@ -98,8 +112,10 @@ export function useMemory() {
   async function onMessageSent(contact, content, scheduleSave) {
     if (!contact) return
     initContactMemory(contact)
+    const removedExpired = sweepExpiredCoreMemories(contact)
     const settings = contact.memorySettings || DEFAULT_MEMORY_SETTINGS
     if (!settings.enabled) return
+    if (removedExpired > 0 && scheduleSave) scheduleSave()
 
     // 检查关键词触发
     const extracted = checkKeywordTrigger(content, contact)
@@ -120,9 +136,11 @@ export function useMemory() {
   async function onAssistantReplied(contact, scheduleSave) {
     if (!contact) return null
     initContactMemory(contact)
+    const removedExpired = sweepExpiredCoreMemories(contact)
 
     const settings = contact.memorySettings || DEFAULT_MEMORY_SETTINGS
     if (!settings.enabled) return null
+    if (removedExpired > 0 && scheduleSave) scheduleSave()
 
     const lastMsg = contact.msgs?.[contact.msgs.length - 1] || null
     const lastIsAssistant = lastMsg?.role === 'assistant'
@@ -226,6 +244,7 @@ export function useMemory() {
     rerollSummary,
     checkAutoSummaryTrigger,
     buildMemoryPrompt,
+    clearContactMemory,
     invalidateRoundVectors,
     onMessageSent,
     onAssistantReplied,

@@ -226,6 +226,11 @@ export const presetThemes = [
   color: #fff !important;
 }
 
+/* 还原 LINE 的裸加号图标（默认主题的加号带灰色圆底） */
+.chat-input-plus {
+  background: transparent !important;
+}
+
 /* 深色模式覆盖 */
 .dark .chat-messages {
   background-color: #1a1a2e !important;
@@ -428,10 +433,216 @@ export const presetThemes = [
 /* 底部加号和表情按钮 */
 .chat-input-plus, .chat-input-emoji {
   border: 1px dashed transparent;
+  background: transparent !important;
 }
 .chat-input-plus:hover, .chat-input-emoji:hover {
   border: 1px dashed #2D004F;
   background: rgba(255,255,255,0.3);
+}`
+    }
+  },
+  {
+    id: 'liquidGlass',
+    name: '液态玻璃 (iOS 26)',
+    preview: {
+      bg: 'linear-gradient(160deg, #BFD5FF 0%, #D8CDFF 45%, #FFD6E8 100%)',
+      userBubble: '#0A84FF',
+      aiBubble: 'rgba(255,255,255,0.85)'
+    },
+    data: {
+      inputPlaceholder: 'iMessage 信息',
+      showMicButton: true,
+      headerActions: ['video'],
+
+      primaryColor: '#0A84FF',
+      // 应用级颜色（背景/卡片/文字/边框/导航）不在此覆盖：inline 主题变量会压过
+      // .dark 的暗色变量导致深色模式失效，玻璃质感统一在 customCSS 里分深浅色实现
+      bubbleUserBg: '#0A84FF',
+      bubbleUserText: '#FFFFFF',
+      bubbleAiBg: 'rgba(255,255,255,0.97)',
+      bubbleAiText: '#0B1220',
+      bubbleRadius: '20px',
+      bubbleShadow: '0 1px 1px rgba(20,30,50,0.05), 0 6px 18px rgba(20,30,50,0.07)',
+
+      inputBg: 'rgba(255,255,255,0.62)',
+      inputBorder: 'rgba(255,255,255,0.65)',
+      inputRadius: '22px',
+
+      buttonRadius: '16px',
+      fontSize: '16px',
+      globalRadius: '18px',
+
+      customCSS: `/* 液态玻璃 (iOS 26) —— 折射玻璃材质 / 悬浮胶囊 / 高光描边 */
+
+/* === 聊天背景：柔和多色渐变 + 光斑 === */
+.chat-view {
+  background-image:
+    radial-gradient(1200px 800px at 85% -10%, rgba(255,214,232,0.55), transparent 60%),
+    radial-gradient(1000px 700px at -15% 30%, rgba(191,213,255,0.60), transparent 55%),
+    linear-gradient(160deg, #EAF1FE 0%, #E9E4FB 50%, #FBEAF3 100%);
+}
+.dark .chat-view {
+  background-image:
+    radial-gradient(1200px 800px at 85% -10%, rgba(64,45,90,0.50), transparent 60%),
+    radial-gradient(1000px 700px at -15% 30%, rgba(30,50,95,0.55), transparent 55%),
+    linear-gradient(160deg, #0B0F1A 0%, #131226 55%, #1A1024 100%);
+}
+/* 消息容器透明化，露出渐变；联系人自定义壁纸为内联样式，仍优先生效 */
+.chat-messages {
+  background-color: transparent !important;
+}
+
+/* === 全局玻璃面板（信息列表等非聊天页头部；深浅色都要覆盖） === */
+.glass-panel:not(.chat-header) {
+  background-color: rgba(255,255,255,0.60) !important;
+  backdrop-filter: blur(24px) saturate(1.5) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.5) !important;
+}
+.dark .glass-panel:not(.chat-header) {
+  background-color: rgba(22,27,38,0.68) !important;
+  border-bottom-color: rgba(255,255,255,0.08) !important;
+}
+
+/* === 顶部导航：悬浮玻璃层 === */
+.chat-header {
+  background: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.45)) !important;
+  backdrop-filter: blur(28px) saturate(1.7) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(1.7) !important;
+  border-bottom: 0.5px solid rgba(255,255,255,0.55) !important;
+  box-shadow: 0 8px 24px rgba(30,40,70,0.06) !important;
+}
+.dark .chat-header {
+  background: linear-gradient(180deg, rgba(22,27,38,0.72), rgba(22,27,38,0.50)) !important;
+  border-bottom: 0.5px solid rgba(255,255,255,0.08) !important;
+}
+
+/* === 气泡：玻璃质感（半透明 + 内高光描边，不用 backdrop-filter 保证长列表流畅） === */
+.bubble-ai {
+  border: 0.5px solid rgba(255,255,255,0.75) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.65), 0 1px 1px rgba(20,30,50,0.05), 0 6px 18px rgba(20,30,50,0.07) !important;
+}
+.dark .bubble-ai {
+  background-color: rgba(48,50,60,0.96) !important;
+  color: #F2F5FA !important;
+  border: 0.5px solid rgba(255,255,255,0.10) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 6px 18px rgba(0,0,0,0.35) !important;
+}
+.dark .bubble-ai.has-tail::before {
+  background-color: rgba(48,50,60,0.96) !important;
+}
+.dark .voice-bubble-ai {
+  background: rgba(48,50,60,0.96) !important;
+  border-color: rgba(255,255,255,0.10) !important;
+}
+.bubble-user {
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.05) 55%, rgba(255,255,255,0) 78%);
+  border: 0.5px solid rgba(255,255,255,0.32) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 6px 18px rgba(10,60,140,0.22) !important;
+}
+.dark .bubble-ai .reply-context { background: rgba(255,255,255,0.10); }
+
+/* === 时间戳：玻璃胶囊 === */
+.chat-timestamp {
+  display: table;
+  margin: 10px auto;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.50);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 0.5px solid rgba(255,255,255,0.60);
+  box-shadow: 0 2px 8px rgba(30,40,70,0.06);
+  color: rgba(60,70,90,0.85) !important;
+}
+.dark .chat-timestamp {
+  background: rgba(30,34,44,0.55);
+  border-color: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.65) !important;
+}
+
+/* === 旁白：玻璃卡片 === */
+.narration {
+  background: rgba(255,255,255,0.55) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 0.5px solid rgba(255,255,255,0.60) !important;
+  color: #46506A !important;
+}
+.dark .narration {
+  background: rgba(28,32,42,0.60) !important;
+  border-color: rgba(255,255,255,0.08) !important;
+  color: #C4CBD8 !important;
+}
+
+/* === 输入区：底栏透明，胶囊悬浮（消息从玻璃胶囊下方滑过） === */
+.glass-input-area {
+  background: transparent !important;
+  border-top: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.chat-input-field {
+  background: linear-gradient(180deg, rgba(255,255,255,0.75), rgba(255,255,255,0.50)) !important;
+  border: 0.5px solid rgba(255,255,255,0.80) !important;
+  border-radius: 22px !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.80), 0 4px 16px rgba(30,40,70,0.12) !important;
+  backdrop-filter: blur(24px) saturate(1.6) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.6) !important;
+}
+.dark .chat-input-field {
+  background: linear-gradient(180deg, rgba(40,44,56,0.72), rgba(40,44,56,0.55)) !important;
+  border: 0.5px solid rgba(255,255,255,0.14) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 4px 16px rgba(0,0,0,0.40) !important;
+}
+
+/* 加号：独立玻璃圆钮（对应 iOS 26 悬浮圆形按钮） */
+.chat-input-plus {
+  background: rgba(255,255,255,0.60) !important;
+  border: 0.5px solid rgba(255,255,255,0.80);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.80), 0 4px 14px rgba(30,40,70,0.12);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  color: #3A4356 !important;
+}
+.dark .chat-input-plus {
+  background: rgba(40,44,56,0.65) !important;
+  border-color: rgba(255,255,255,0.14);
+  color: #E6EAF2 !important;
+}
+
+/* 发送键：液态蓝玻璃 */
+.chat-input-send-icon {
+  background: linear-gradient(180deg, #3E9BFF, #0A84FF) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.50), 0 3px 10px rgba(10,132,255,0.45) !important;
+}
+.chat-input-mic { color: #5F6B7A !important; }
+.dark .chat-input-mic { color: #9AA4B2 !important; }
+
+/* 渐变背景上的消息时间 */
+.msg-meta { color: rgba(80,90,110,0.75) !important; }
+.dark .msg-meta { color: rgba(200,208,220,0.55) !important; }
+
+/* 移动端性能兜底：触屏设备关闭大面积 backdrop-filter，换更实的底色
+   （对齐 style.css 的 GPU 性能守护，模糊效果保留给桌面端） */
+@media (hover: none) and (pointer: coarse) {
+  .chat-timestamp {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(255,255,255,0.72);
+  }
+  .dark .chat-timestamp { background: rgba(30,34,44,0.78); }
+  .chat-header, .chat-input-field, .chat-input-plus, .glass-panel {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .chat-header { background: rgba(255,255,255,0.92) !important; }
+  .dark .chat-header { background: rgba(22,27,38,0.94) !important; }
+  .chat-input-field { background: rgba(255,255,255,0.92) !important; }
+  .dark .chat-input-field { background: rgba(40,44,56,0.94) !important; }
+  .chat-input-plus { background: rgba(255,255,255,0.85) !important; }
+  .dark .chat-input-plus { background: rgba(40,44,56,0.90) !important; }
+  .glass-panel:not(.chat-header) { background-color: rgba(255,255,255,0.92) !important; }
+  .dark .glass-panel:not(.chat-header) { background-color: rgba(22,27,38,0.94) !important; }
 }`
     }
   }

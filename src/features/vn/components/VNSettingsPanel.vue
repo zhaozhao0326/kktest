@@ -37,6 +37,45 @@
           </div>
         </div>
 
+        <!-- Sprite Scale -->
+        <div v-if="characters.length > 0" class="vn-setting-card">
+          <div class="vn-setting-header">
+            <i class="ph ph-arrows-out"></i>
+            <span>立绘大小</span>
+            <span class="vn-setting-val">按角色保存</span>
+          </div>
+          <p class="vn-setting-hint">智能模式会根据透明留白自动放大；也可以为每个角色固定倍率。</p>
+
+          <div v-for="char in characters" :key="char.contactId" class="vn-sprite-scale-item">
+            <div class="vn-sprite-scale-title">
+              <span class="vn-stage-dot" :class="{ active: isOnStage(char.contactId) }"></span>
+              <span>{{ char.vnName || '角色' }}</span>
+              <span class="vn-setting-val">{{ spriteScaleLabel(char) }}</span>
+            </div>
+            <div class="vn-slider-row">
+              <span class="vn-slider-label">小</span>
+              <input
+                :value="spriteScaleValue(char)"
+                type="range"
+                min="0.6"
+                max="2"
+                step="0.05"
+                class="vn-slider"
+                @input="setSpriteScale(char, $event.target.value)"
+                @change="scheduleSave"
+              >
+              <span class="vn-slider-label">大</span>
+              <button
+                class="vn-auto-scale-btn"
+                :class="{ active: isAutoScale(char) }"
+                @click="enableAutoScale(char)"
+              >
+                智能
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- TTS -->
         <div class="vn-setting-card">
           <div class="vn-setting-header">
@@ -81,6 +120,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useVNStore } from '../../../stores/vn'
 import { useStorage } from '../../../composables/useStorage'
 
@@ -90,8 +130,39 @@ const { scheduleSave } = useStorage()
 
 const player = vnStore.player
 const tts = vnStore.ttsConfig
+const characters = computed(() => vnStore.currentProject?.characters || [])
 
 function saveTts() { scheduleSave() }
+
+function isAutoScale(char) {
+  const value = Number(char?.spriteScale)
+  return !Number.isFinite(value) || value <= 0
+}
+
+function spriteScaleValue(char) {
+  return isAutoScale(char) ? 1 : Number(char.spriteScale)
+}
+
+function spriteScaleLabel(char) {
+  if (isAutoScale(char)) return '智能'
+  return `${Math.round(Number(char.spriteScale) * 100)}%`
+}
+
+function setSpriteScale(char, value) {
+  const scale = Number(value)
+  if (!char || !Number.isFinite(scale)) return
+  char.spriteScale = Math.min(2, Math.max(0.6, scale))
+}
+
+function enableAutoScale(char) {
+  if (!char) return
+  char.spriteScale = null
+  scheduleSave()
+}
+
+function isOnStage(contactId) {
+  return player.sprites.some(sprite => sprite.characterId === contactId && !sprite.isExiting)
+}
 </script>
 
 <style scoped>
@@ -172,6 +243,59 @@ function saveTts() { scheduleSave() }
   font-size: 12px;
   color: rgba(99, 102, 241, 0.8);
   font-family: monospace;
+}
+
+.vn-setting-hint {
+  margin: -6px 0 14px;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.vn-sprite-scale-item {
+  padding: 12px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.vn-sprite-scale-item:first-of-type { border-top: none; }
+
+.vn-sprite-scale-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+}
+
+.vn-stage-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.vn-stage-dot.active {
+  background: #f472b6;
+  box-shadow: 0 0 8px rgba(244, 114, 182, 0.7);
+}
+
+.vn-auto-scale-btn {
+  flex: none;
+  min-width: 44px;
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 11px;
+}
+
+.vn-auto-scale-btn.active {
+  border-color: rgba(244, 114, 182, 0.45);
+  background: rgba(244, 114, 182, 0.14);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 /* Slider */

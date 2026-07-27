@@ -34,6 +34,16 @@
           <i class="ph ph-caret-right text-[var(--text-secondary)]"></i>
         </div>
       </button>
+      <button class="w-full px-4 py-3 flex items-center justify-between border-b border-[var(--border-color)]" @click="goTo('toolsMcp')">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-[#AF52DE] flex items-center justify-center text-white"><i class="ph ph-plugs-connected text-[18px]"></i></div>
+          <span class="text-[17px] text-[var(--text-primary)]">工具与 MCP</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <span class="text-[15px] text-[var(--text-secondary)]">{{ toolsMcpSummary }}</span>
+          <i class="ph ph-caret-right text-[var(--text-secondary)]"></i>
+        </div>
+      </button>
       <button class="w-full px-4 py-3 flex items-center justify-between border-b border-[var(--border-color)]" @click="goTo('voice')">
         <div class="flex items-center gap-3">
           <div class="w-8 h-8 rounded-lg bg-[#FF2D55] flex items-center justify-center text-white"><i class="ph ph-microphone text-[18px]"></i></div>
@@ -148,8 +158,15 @@ const aiFeatureCount = computed(() => {
   if (store.allowAICall) count++
   if (store.allowAIMusicRecommend) count++
   if (store.enableWeatherContext) count++
-  if (store.allowToolCalling) count++
   return count
+})
+
+const toolsMcpSummary = computed(() => {
+  if (!store.allowToolCalling) return '关闭'
+  const directCount = Array.isArray(store.toolCallingConfig?.mcpDirectServers)
+    ? store.toolCallingConfig.mcpDirectServers.filter(s => s.enabled !== false).length
+    : 0
+  return directCount > 0 ? `已开启 · ${directCount} 个直连` : '已开启'
 })
 
 const voiceSummary = computed(() => {

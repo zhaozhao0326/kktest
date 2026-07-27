@@ -1,8 +1,7 @@
 import {
   BEIJING_TIME_ZONE,
   normalizeTimeZoneMode,
-  sanitizeIanaTimeZone,
-  TIME_ZONE_MODE_BEIJING
+  sanitizeIanaTimeZone
 } from '../utils/beijingTime'
 import {
   createDefaultCloudSyncSettings,
@@ -29,6 +28,11 @@ export const VOICE_SETTINGS_STATE_FIELDS = Object.freeze(Object.keys(createDefau
 export const LIVENESS_SETTINGS_STATE_FIELDS = Object.freeze(Object.keys(createDefaultLivenessSettings()))
 export const CLOUD_SYNC_SETTINGS_STATE_FIELDS = Object.freeze(Object.keys(createDefaultCloudSyncSettings()))
 export const TOOL_CALLING_SETTINGS_STATE_FIELDS = Object.freeze(Object.keys(createDefaultToolCallingSettings()))
+
+export function normalizeToolCallingMode(value) {
+  const mode = String(value || '').trim().toLowerCase()
+  return mode === 'off' || mode === 'intent' || mode === 'always' ? mode : 'intent'
+}
 
 export const STORAGE_SETTINGS_PROXY_FIELDS = Object.freeze([
   ...new Set([
@@ -81,7 +85,7 @@ export const SETTINGS_SNAPSHOT_FIELD_DEFINITIONS = Object.freeze([
   },
   {
     key: 'timeZoneMode',
-    normalize: (value) => normalizeTimeZoneMode(value || TIME_ZONE_MODE_BEIJING)
+    normalize: (value) => normalizeTimeZoneMode(value)
   },
   {
     key: 'customTimeZone',
@@ -113,10 +117,12 @@ export const SETTINGS_SNAPSHOT_FIELD_DEFINITIONS = Object.freeze([
   { key: 'cloudSyncAutoSyncPolicy', normalize: (value) => normalizeCloudSyncAutoSyncPolicy(value) },
   { key: 'cloudSyncCustomMinIntervalMs', normalize: (value) => normalizeCloudSyncCustomIntervalMs(value) },
   { key: 'cloudSyncCustomMinDeltaBytes', normalize: (value) => normalizeCloudSyncCustomDeltaBytes(value) },
+  { key: 'cloudSyncForceSyncOnBackground', normalize: (value) => !!value },
   { key: 'cloudSyncIncludeMedia', normalize: (value) => !!value },
   { key: 'cloudSyncProvider', normalize: (value) => value || 'firebase' },
   { key: 'cloudSyncDeviceId', normalize: (value) => value || '' },
-  { key: 'allowToolCalling', normalize: (value) => !!value }
+  { key: 'allowToolCalling', normalize: (value) => !!value },
+  { key: 'toolCallingMode', normalize: normalizeToolCallingMode }
 ])
 
 export const SETTINGS_SNAPSHOT_FIELD_KEYS = Object.freeze(

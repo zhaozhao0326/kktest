@@ -5,6 +5,7 @@ import {
 } from '../../stores/settingsSchema'
 import { createDefaultSettingsSnapshot } from '../../stores/settingsDefaults'
 import { applyContactMessageSummary } from '../../utils/contactMessageSummary'
+import { sanitizeMiniMaxVoiceId } from '../../utils/minimaxConfig'
 import { normalizeMcpServerIds } from '../../utils/mcpServers'
 import { createDefaultPlannerData } from './appDataModules'
 import { ensureLorebookDefaults } from './lorebookDefaults'
@@ -133,7 +134,18 @@ function applyReaderState(data, store, readerStore) {
 }
 
 function applyForumState(data, momentsStore) {
-  momentsStore.moments.splice(0, momentsStore.moments.length, ...(data.forum || []))
+  const restoredMoments = (data.forum || []).map((moment) => {
+    if (!moment || typeof moment !== 'object') return moment
+    // imageGenPending 是瞬态生成计数，重载后不存在对应任务
+    const next = { ...moment, imageGenPending: 0 }
+    if (Array.isArray(moment.replies)) {
+      next.replies = moment.replies.map(reply => (
+        reply && typeof reply === 'object' ? { ...reply, imageGenPending: 0 } : reply
+      ))
+    }
+    return next
+  })
+  momentsStore.moments.splice(0, momentsStore.moments.length, ...restoredMoments)
 
   if (data.forumUser) {
     if (data.forumUser.id) {
@@ -165,6 +177,7 @@ function normalizeContactRuntimeShape(store) {
     contact.mcpServerIds = normalizeMcpServerIds(contact.mcpServerIds)
     if (!Array.isArray(contact.msgs)) contact.msgs = []
     if (!Array.isArray(contact.callHistory)) contact.callHistory = []
+    contact.minimaxVoiceId = sanitizeMiniMaxVoiceId(contact.minimaxVoiceId || '')
 
     if (Array.isArray(contact.members)) {
       contact.members = contact.members.map((member) => {

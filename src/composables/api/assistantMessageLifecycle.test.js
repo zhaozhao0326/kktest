@@ -1,16 +1,44 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  appendAssistantReasoning,
   appendAssistantErrorMessage,
   applyContentFilterNotice,
   applyReplyMetadata,
   assertVisibleAssistantReply,
   createAssistantMessage,
   finalizeStreamingAssistantReply,
-  handleAssistantRequestFailure
+  handleAssistantRequestFailure,
+  setAssistantReasoning
 } from './assistantMessageLifecycle'
 import { API_ERROR_CODES } from './errors'
 
 describe('assistantMessageLifecycle', () => {
+  it('stores reasoning as ordered round logs without duplicating entries', () => {
+    const msg = { id: 'msg_reasoning_1', content: '' }
+
+    expect(appendAssistantReasoning(msg, '先检查工具参数', 1)).toBe(true)
+    expect(appendAssistantReasoning(msg, '先检查工具参数', 1)).toBe(false)
+    expect(appendAssistantReasoning(msg, '根据结果组织回复', 2)).toBe(true)
+
+    expect(msg.reasoningLogs).toEqual([
+      { content: '先检查工具参数', round: 1 },
+      { content: '根据结果组织回复', round: 2 }
+    ])
+    expect(msg.reasoningContent).toBe('先检查工具参数\n\n根据结果组织回复')
+  })
+
+  it('replaces the active reasoning round while streaming', () => {
+    const msg = { id: 'msg_reasoning_stream', content: '' }
+
+    expect(setAssistantReasoning(msg, '先检查', 1)).toBe(true)
+    expect(setAssistantReasoning(msg, '先检查工具参数', 1)).toBe(true)
+    expect(setAssistantReasoning(msg, '先检查工具参数', 1)).toBe(false)
+
+    expect(msg.reasoningLogs).toEqual([
+      { content: '先检查工具参数', round: 1 }
+    ])
+  })
+
   it('creates assistant messages with shared defaults', () => {
     const msg = createAssistantMessage(() => 'msg_1', 'trace_1', {
       senderName: 'Alice',

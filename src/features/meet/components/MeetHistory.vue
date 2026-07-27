@@ -4,7 +4,7 @@
       <div class="meet-panel-header">
         <h2 class="meet-panel-title">历史回溯</h2>
         <button class="meet-close-btn" @click.stop="emit('close')">
-          关闭
+          <i class="ph-bold ph-x"></i>
         </button>
       </div>
 
@@ -121,42 +121,43 @@ function formatEvent(entry) {
   z-index: 60;
   display: flex;
   flex-direction: column;
-  background: rgba(20, 20, 20, 0.95);
+  background: rgba(8, 8, 20, 0.8);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
   font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
 }
 
 .meet-panel-header {
-  padding: var(--app-pt-lg, 52px) 24px 16px;
+  padding: var(--app-pt-lg, 52px) 24px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 2px solid #333;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .meet-panel-title {
-  font-size: 1.3rem;
+  font-size: 1.25rem;
   font-weight: 700;
   color: #fff;
   letter-spacing: 6px;
 }
 
 .meet-close-btn {
-  background: #000;
-  border: 2px solid #444;
-  color: #fff;
-  padding: 8px 14px;
-  font-size: 13px;
-  font-family: var(--meet-font, 'Noto Serif SC', 'SimSun', serif);
-  letter-spacing: 3px;
-  font-weight: 700;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 15px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: transform 0.2s ease, background 0.2s ease;
 }
 
-.meet-close-btn:hover { background: #333; }
-.meet-close-btn:active { background: #444; }
+.meet-close-btn:active { transform: scale(0.88); background: rgba(255, 255, 255, 0.15); }
 
 .meet-history-list {
   flex: 1;

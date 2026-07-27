@@ -90,7 +90,7 @@
     </div>
 
     <!-- 主输入区 -->
-    <div class="chat-input glass-input-area px-2 py-2 flex items-end gap-1 min-h-[50px] pb-app relative z-20">
+    <div class="chat-input glass-input-area px-3 py-2 flex items-end gap-2 min-h-[50px] pb-app relative z-20">
       <!-- 左侧按钮组 -->
       <div class="chat-input-left flex items-center shrink-0">
         <!-- 左侧加号按钮 -->
@@ -98,10 +98,10 @@
           v-if="showPlusLeft"
           ref="plusButton"
           type="button"
-          class="chat-input-plus chat-input-plus-left h-[36px] w-[36px] flex items-center justify-center text-[var(--text-secondary)] active:scale-90 transition-transform cursor-pointer"
+          class="chat-input-plus chat-input-plus-left h-[34px] w-[34px] mb-[1px] flex items-center justify-center text-[var(--text-secondary)] active:scale-90 transition-transform cursor-pointer"
           @click="handlePlusClick"
         >
-          <i class="ph-fill ph-plus-circle text-[28px]"></i>
+          <i class="ph-bold ph-plus text-[18px]"></i>
         </button>
 
         <!-- 相机按钮 -->
@@ -183,8 +183,8 @@
         </Transition>
       </Teleport>
 
-      <!-- 输入框 -->
-      <div class="chat-input-field theme-input flex-1 min-w-0 px-3 py-[7px] flex items-center shadow-sm relative">
+      <!-- 输入框（iMessage 风格：发送按钮嵌在胶囊内右下角） -->
+      <div class="chat-input-field theme-input flex-1 min-w-0 pl-3 pr-10 py-[7px] flex items-center relative">
         <textarea
           ref="inputEl"
           :value="modelValue"
@@ -211,6 +211,22 @@
           @click="$emit('openSticker')"
         >
           <i class="ph ph-smiley text-[20px]"></i>
+        </button>
+        <!-- 麦克风/发送按钮（胶囊内右下角） -->
+        <button
+          class="chat-input-send absolute right-[3px] bottom-[3px] h-[30px] min-w-[30px] flex items-center justify-center active:scale-90 transition-transform"
+          @click="handleSendClick"
+        >
+          <!-- 麦克风（无输入时） -->
+          <template v-if="showMicButton && !hasInput">
+            <i class="chat-input-mic ph ph-microphone text-[22px] text-[var(--text-secondary)]"></i>
+          </template>
+          <!-- 文字样式 -->
+          <span v-else-if="sendButtonStyle === 'text'" class="chat-input-send-text text-[var(--primary-color)] font-semibold text-[15px] px-1 max-w-[60px] overflow-hidden text-ellipsis whitespace-nowrap">{{ sendButtonText }}</span>
+          <!-- 图标样式（默认） -->
+          <div v-else class="chat-input-send-icon w-[30px] h-[30px] bg-[var(--primary-color)] rounded-full flex items-center justify-center text-white">
+            <i class="ph-bold ph-arrow-up text-[17px]"></i>
+          </div>
         </button>
         <!-- 表情包候选面板 -->
         <div
@@ -244,24 +260,10 @@
         v-if="showPlusRight"
         ref="plusButton"
         type="button"
-        class="chat-input-plus chat-input-plus-right h-[36px] w-[36px] flex items-center justify-center text-[var(--text-secondary)] active:scale-90 transition-transform cursor-pointer shrink-0"
+        class="chat-input-plus chat-input-plus-right h-[34px] w-[34px] mb-[1px] flex items-center justify-center text-[var(--text-secondary)] active:scale-90 transition-transform cursor-pointer shrink-0"
         @click="handlePlusClick"
       >
-        <i class="ph-fill ph-plus-circle text-[28px]"></i>
-      </button>
-
-      <!-- 麦克风/发送按钮 -->
-      <button class="chat-input-send h-[32px] w-[32px] flex items-center justify-center active:scale-90 transition-transform shrink-0" @click="handleSendClick">
-        <!-- 麦克风（无输入时） -->
-        <template v-if="showMicButton && !hasInput">
-          <i class="chat-input-mic ph ph-microphone text-[24px] text-[var(--text-secondary)]"></i>
-        </template>
-        <!-- 文字样式 -->
-        <span v-else-if="sendButtonStyle === 'text'" class="chat-input-send-text text-[var(--primary-color)] font-semibold text-[15px]">{{ sendButtonText }}</span>
-        <!-- 图标样式（默认） -->
-        <div v-else class="chat-input-send-icon w-[28px] h-[28px] bg-[var(--primary-color)] rounded-full flex items-center justify-center text-white">
-          <i class="ph-bold ph-arrow-up text-sm"></i>
-        </div>
+        <i class="ph-bold ph-plus text-[18px]"></i>
       </button>
     </div>
 

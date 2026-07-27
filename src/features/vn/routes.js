@@ -2,7 +2,7 @@ export const vnRoutes = [
   {
     path: '/vn',
     name: 'vn-home',
-    component: () => import('./views/VNHomeView.vue')
+    redirect: { path: '/meet', query: { tab: 'vn' } }
   },
   {
     path: '/vn/image-config',

@@ -9,7 +9,7 @@ export const StickerGroupModal = defineAsyncComponent(() => import('./components
 export const TransferModal = defineAsyncComponent(() => import('./components/TransferModal.vue'))
 export const GiftPickerPanel = defineAsyncComponent(() => import('./components/GiftPickerPanel.vue'))
 export const TransferDetailPanel = defineAsyncComponent(() => import('./components/TransferDetailPanel.vue'))
-export const VoiceModal = defineAsyncComponent(() => import('./components/VoiceModal.vue'))
+export const VoiceModal = defineAsyncComponent(() => import('../../components/common/VoiceModal.vue'))
 export const MeetInviteModal = defineAsyncComponent(() => import('./components/MeetInviteModal.vue'))
 export const MockImageModal = defineAsyncComponent(() => import('./components/MockImageModal.vue'))
 export const CallHistoryModal = defineAsyncComponent(() => import('./components/CallHistoryModal.vue'))

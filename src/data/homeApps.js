@@ -24,6 +24,14 @@ export const DESKTOP_APPS = [
     previewBackground: 'linear-gradient(180deg, #A1A1A6 0%, #636366 100%)'
   },
   {
+    key: 'debugLogs',
+    label: '日志',
+    route: '/debug-logs',
+    icon: 'ph-fill ph-terminal-window',
+    homeBackground: 'rgba(14,165,233,0.2)',
+    previewBackground: 'linear-gradient(180deg, #38BDF8 0%, #0284C7 100%)'
+  },
+  {
     key: 'lorebook',
     label: '世界书',
     route: '/lorebook',
@@ -54,14 +62,6 @@ export const DESKTOP_APPS = [
     icon: 'ph-fill ph-images-square',
     homeBackground: 'rgba(255,149,0,0.2)',
     previewBackground: 'linear-gradient(180deg, #FFB340 0%, #FF7A00 100%)'
-  },
-  {
-    key: 'vn',
-    label: 'VN',
-    route: '/vn',
-    icon: 'ph-fill ph-game-controller',
-    homeBackground: 'rgba(99,102,241,0.2)',
-    previewBackground: 'linear-gradient(180deg, #00C2A8 0%, #009B83 100%)'
   },
   {
     key: 'meet',

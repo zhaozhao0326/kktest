@@ -32,6 +32,24 @@ describe('buildOpenAICompatHeaders', () => {
       Authorization: 'Bearer sk-test'
     })
   })
+
+  it('repairs harmless copied key wrappers and rejects non-ASCII key text', () => {
+    expect(buildOpenAICompatHeaders(' “Bearer sk-test\u200B” ')).toMatchObject({
+      Authorization: 'Bearer sk-test'
+    })
+    expect(() => buildOpenAICompatHeaders('密钥：sk-test')).toThrow(
+      'API Key 含有中文、全角符号、空格或换行'
+    )
+  })
+
+  it('lets an explicit custom Authorization override defaults without duplicate casing', () => {
+    expect(buildOpenAICompatHeaders('sk-current', {
+      extraHeaders: { authorization: 'Bearer custom' }
+    })).toEqual({
+      'Content-Type': 'application/json',
+      authorization: 'Bearer custom'
+    })
+  })
 })
 
 describe('resolveOpenAICompatRequest', () => {
@@ -88,6 +106,36 @@ describe('resolveOpenAICompatRequest', () => {
     expect(request.url).toBe('https://api.mortis.edu.kg/v1/chat/completions')
     expect(request.proxied).toBe(false)
     expect(request.headers['x-target-url']).toBeUndefined()
+  })
+
+  it('ASCII-encodes a Unicode proxy target before putting it in x-target-url', () => {
+    const request = resolveOpenAICompatRequest('https://api.mortis.edu.kg/v1/中文\u200B', {
+      apiKey: 'sk-test',
+      locationLike: {
+        origin: 'https://aichat.vercel.app',
+        hostname: 'aichat.vercel.app'
+      }
+    })
+
+    expect(request.proxied).toBe(true)
+    expect(request.targetUrl).toBe(
+      'https://api.mortis.edu.kg/v1/%E4%B8%AD%E6%96%87/chat/completions'
+    )
+    expect(request.headers['x-target-url']).toBe(request.targetUrl)
+  })
+
+  it('does not let a custom header replace the internal proxy target', () => {
+    const request = resolveOpenAICompatRequest('https://api.mortis.edu.kg/v1', {
+      apiKey: 'sk-test',
+      extraHeaders: { 'X-Target-Url': 'https://evil.example' },
+      locationLike: {
+        origin: 'https://aichat.vercel.app',
+        hostname: 'aichat.vercel.app'
+      }
+    })
+
+    expect(request.headers['X-Target-Url']).toBeUndefined()
+    expect(request.headers['x-target-url']).toBe('https://api.mortis.edu.kg/v1/chat/completions')
   })
 })
 

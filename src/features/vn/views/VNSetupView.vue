@@ -134,6 +134,7 @@
           <div class="vn-cfg-group">
             <label>Provider</label>
             <select v-model="imageGen.provider" class="vn-cfg-input" @change="saveGlobalConfigs">
+              <option value="openai_images">GPT Image / OpenAI</option>
               <option value="nanobanana">NanoBanana</option>
               <option value="novelai">NovelAI</option>
               <option value="custom">自定义</option>
@@ -148,28 +149,73 @@
           </div>
         </div>
 
-        <div v-if="imageGen.provider === 'nanobanana'" class="space-y-3">
+        <div v-if="imageGen.provider === 'openai_images'" class="space-y-3">
           <div class="vn-cfg-group">
-            <label>接口模式</label>
+            <label>API Key（可选）</label>
+            <input v-model="imageGen.openaiImages.apiKey" type="password" class="vn-cfg-input" placeholder="没有就留空，有就填 sk-..." @change="saveGlobalConfigs">
+            <p class="vn-cfg-help">第三方公益站/本地反代常常不需要 Key；官方 OpenAI 需要填写。</p>
+          </div>
+          <div class="vn-cfg-group">
+            <label>自定义 URL / Base URL</label>
+            <input v-model="imageGen.openaiImages.endpoint" type="text" class="vn-cfg-input" placeholder="https://your-proxy.example.com/v1" @change="saveGlobalConfigs">
+            <p class="vn-cfg-help">第三方推荐填到 <span class="font-mono">/v1</span>；完整 <span class="font-mono">.../images/generations</span> 或 <span class="font-mono">.../chat/completions</span> 也可以。留空才走官方 OpenAI。</p>
+          </div>
+          <div class="vn-cfg-group">
+            <label>模型 ID</label>
+            <input v-model="imageGen.openaiImages.model" type="text" class="vn-cfg-input" placeholder="gpt-image2 或服务商模型 ID" @change="saveGlobalConfigs">
+          </div>
+          <div class="vn-cfg-group">
+            <label>接口格式</label>
+            <select v-model="imageGen.openaiImages.apiMode" class="vn-cfg-input" @change="saveGlobalConfigs">
+              <option value="auto">自动识别</option>
+              <option value="images">Images API (/images)</option>
+              <option value="chat">Chat Completions</option>
+            </select>
+            <p class="vn-cfg-help">OpenRouter 通常走 Chat Completions；普通 OpenAI Images 兼容接口走 Images API。</p>
+          </div>
+          <div class="vn-cfg-group">
+            <label>提示词风格</label>
+            <select v-model="imageGen.openaiImages.promptStyle" class="vn-cfg-input" @change="saveGlobalConfigs">
+              <option v-for="item in imagePromptStyleOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+            <p class="vn-cfg-help">GPT Image 用自然语言；SD/NAI/动漫类第三方模型可切 Tag / Danbooru。</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="vn-cfg-group">
+              <label>尺寸</label>
+              <select v-model="imageGen.openaiImages.size" class="vn-cfg-input" @change="saveGlobalConfigs">
+                <option value="auto">自动</option>
+                <option value="1024x1024">方图 1:1</option>
+                <option value="1024x1536">竖图 2:3</option>
+                <option value="1536x1024">横图 3:2</option>
+              </select>
+            </div>
+            <div class="vn-cfg-group">
+              <label>质量</label>
+              <select v-model="imageGen.openaiImages.quality" class="vn-cfg-input" @change="saveGlobalConfigs">
+                <option value="auto">自动</option>
+                <option value="low">低</option>
+                <option value="medium">中</option>
+                <option value="high">高</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div v-else-if="imageGen.provider === 'nanobanana'" class="space-y-3">
+          <div class="vn-cfg-group">
+            <label>连接方式</label>
             <select v-model="imageGen.nanobanana.apiMode" class="vn-cfg-input" @change="saveGlobalConfigs">
               <option value="gemini">Gemini 原生</option>
               <option value="openai_chat">OpenAI Chat</option>
               <option value="openai_images">OpenAI Images</option>
             </select>
+            <p class="vn-cfg-help">Gemini 原生可留空使用官方地址；OpenAI 兼容通常填服务商给的 Base URL，例如 <span class="font-mono">.../v1</span>。</p>
           </div>
           <div class="vn-cfg-group">
-            <label>鉴权方式</label>
-            <select v-model="imageGen.nanobanana.apiKeyMode" class="vn-cfg-input" @change="saveGlobalConfigs">
-              <option value="query">Query ?key=</option>
-              <option value="bearer">Bearer</option>
-              <option value="x-goog-api-key">x-goog-api-key</option>
-              <option value="x-api-key">x-api-key</option>
-              <option value="none">无鉴权</option>
-            </select>
-          </div>
-          <div class="vn-cfg-group">
-            <label>API Key</label>
-            <input v-model="imageGen.nanobanana.apiKey" type="password" class="vn-cfg-input" @change="saveGlobalConfigs">
+            <label>API Key（可选）</label>
+            <input v-model="imageGen.nanobanana.apiKey" type="password" class="vn-cfg-input" placeholder="第三方无 Key 可留空" @change="saveGlobalConfigs">
+            <p class="vn-cfg-help">官方 Gemini 需要 Key；第三方/反代如果没有 Key，填好接口地址即可。</p>
           </div>
           <div class="vn-cfg-group">
             <label>Endpoint（可选）</label>
@@ -182,11 +228,31 @@
                 : 'https://your-openai-compatible-api/v1'"
               @change="saveGlobalConfigs"
             >
+            <p class="vn-cfg-help">完整 <span class="font-mono">.../chat/completions</span> 或 <span class="font-mono">.../images/generations</span> 也可以。</p>
           </div>
           <div class="vn-cfg-group">
             <label>Model</label>
             <input v-model="imageGen.nanobanana.model" type="text" class="vn-cfg-input" @change="saveGlobalConfigs">
           </div>
+          <div class="vn-cfg-group">
+            <label>提示词风格</label>
+            <select v-model="imageGen.nanobanana.promptStyle" class="vn-cfg-input" @change="saveGlobalConfigs">
+              <option v-for="item in imagePromptStyleOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </div>
+          <details class="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2">
+            <summary class="text-[12px] font-bold text-gray-500 cursor-pointer">高级鉴权</summary>
+            <div class="vn-cfg-group mt-3">
+              <label>鉴权方式</label>
+              <select v-model="imageGen.nanobanana.apiKeyMode" class="vn-cfg-input" @change="saveGlobalConfigs">
+                <option value="query">Query ?key=</option>
+                <option value="bearer">Bearer</option>
+                <option value="x-goog-api-key">x-goog-api-key</option>
+                <option value="x-api-key">x-api-key</option>
+                <option value="none">无鉴权</option>
+              </select>
+            </div>
+          </details>
         </div>
 
         <div v-else-if="imageGen.provider === 'novelai'" class="space-y-3">
@@ -274,6 +340,7 @@ import { useVNStore } from '../../../stores/vn'
 import { useStorage } from '../../../composables/useStorage'
 import { useTTS } from '../../../composables/useTTS'
 import { useCharacterGen } from '../../../composables/useCharacterGen'
+import { normalizeImageGenProvider } from '../../../composables/imageGen/providers'
 
 const router = useRouter()
 const route = useRoute()
@@ -309,10 +376,33 @@ const characters = computed(() => form.characters)
 const imageGen = vnStore.imageGenConfig
 const tts = vnStore.ttsConfig
 
+const imagePromptStyleOptions = [
+  { value: 'auto', label: '自动（按模型）' },
+  { value: 'gpt_image', label: 'GPT Image 自然语言' },
+  { value: 'gemini_image', label: 'Gemini / NanoBanana 自然语言' },
+  { value: 'danbooru', label: 'Tag / Danbooru' },
+  { value: 'natural', label: '通用自然语言' }
+]
+
+const DEFAULT_IMAGE_REQUEST_TIMEOUT_MS = 90_000
+const MIN_IMAGE_REQUEST_TIMEOUT_MS = 10_000
+const MAX_IMAGE_REQUEST_TIMEOUT_MS = 600_000
+
+function normalizeImageRequestTimeoutMs(value, fallback = DEFAULT_IMAGE_REQUEST_TIMEOUT_MS) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return fallback
+  return Math.max(MIN_IMAGE_REQUEST_TIMEOUT_MS, Math.min(MAX_IMAGE_REQUEST_TIMEOUT_MS, Math.round(n)))
+}
+
 function ensureImageGenDefaults() {
+  const normalizedProvider = normalizeImageGenProvider(imageGen.provider)
+  if (normalizedProvider && normalizedProvider !== imageGen.provider) imageGen.provider = normalizedProvider
+
   if (!imageGen.novelai || typeof imageGen.novelai !== 'object') imageGen.novelai = {}
   if (!imageGen.nanobanana || typeof imageGen.nanobanana !== 'object') imageGen.nanobanana = {}
+  if (!imageGen.openaiImages || typeof imageGen.openaiImages !== 'object') imageGen.openaiImages = {}
   if (!imageGen.custom || typeof imageGen.custom !== 'object') imageGen.custom = {}
+  imageGen.imageRequestTimeoutMs = normalizeImageRequestTimeoutMs(imageGen.imageRequestTimeoutMs)
 
   const novelaiDefaults = {
     apiKey: '',
@@ -324,7 +414,7 @@ function ensureImageGenDefaults() {
 
   const nanobananaDefaults = {
     apiKey: '',
-    model: 'gemini-2.5-flash-image-preview',
+    model: 'gemini-2.5-flash-image',
     apiMode: 'gemini',
     endpoint: '',
     apiKeyMode: 'query',
@@ -332,10 +422,37 @@ function ensureImageGenDefaults() {
     imageSize: '',
     openaiSize: '',
     temperature: 1.0,
+    promptStyle: 'auto',
     extraBody: ''
   }
   Object.entries(nanobananaDefaults).forEach(([k, v]) => {
     if (imageGen.nanobanana[k] === undefined) imageGen.nanobanana[k] = v
+  })
+  if (imageGen.nanobanana.model === 'gemini-2.5-flash-image-preview') {
+    imageGen.nanobanana.model = nanobananaDefaults.model
+  }
+
+  const openaiImagesDefaults = {
+    apiKey: '',
+    endpoint: '',
+    model: 'gpt-image2',
+    apiMode: 'auto',
+    apiKeyMode: 'bearer',
+    size: 'auto',
+    imageSize: '',
+    customWidth: 1024,
+    customHeight: 1024,
+    allowCustomSize: false,
+    quality: 'auto',
+    outputFormat: 'png',
+    background: 'auto',
+    moderation: '',
+    responseFormat: '',
+    promptStyle: 'auto',
+    extraBody: ''
+  }
+  Object.entries(openaiImagesDefaults).forEach(([k, v]) => {
+    if (imageGen.openaiImages[k] === undefined) imageGen.openaiImages[k] = v
   })
 
   const customDefaults = {
@@ -559,6 +676,13 @@ async function batchGenerateAll() {
   color: #9ca3af;
   text-transform: uppercase;
   letter-spacing: 0.1em;
+  padding-left: 4px;
+}
+
+.vn-cfg-help {
+  color: #9ca3af;
+  font-size: 11px;
+  line-height: 1.55;
   padding-left: 4px;
 }
 

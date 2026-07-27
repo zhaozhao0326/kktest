@@ -3,37 +3,52 @@ import { hasImageToken, parseImageTokenPayload, stripImageTokensForDisplay } fro
 
 describe('imageTokens', () => {
   it('defaults to character when no type prefix exists', () => {
-    expect(parseImageTokenPayload('smile, cafe')).toEqual({
+    expect(parseImageTokenPayload('smile, cafe')).toMatchObject({
       type: 'character',
-      tags: 'smile, cafe'
+      tags: 'smile, cafe',
+      options: {}
     })
   })
 
   it('parses standard type prefix with comma', () => {
-    expect(parseImageTokenPayload('type=scene, sunset, beach')).toEqual({
+    expect(parseImageTokenPayload('type=scene, sunset, beach')).toMatchObject({
       type: 'scene',
       tags: 'sunset, beach'
     })
   })
 
   it('parses type prefix without comma separator', () => {
-    expect(parseImageTokenPayload('type=scene sunset beach')).toEqual({
+    expect(parseImageTokenPayload('type=scene sunset beach')).toMatchObject({
       type: 'scene',
       tags: 'sunset beach'
     })
   })
 
   it('supports full-width equals and chinese punctuation', () => {
-    expect(parseImageTokenPayload('type＝food， strawberry_cake')).toEqual({
+    expect(parseImageTokenPayload('type＝food， strawberry_cake')).toMatchObject({
       type: 'food',
       tags: 'strawberry_cake'
     })
   })
 
   it('accepts type-only payload', () => {
-    expect(parseImageTokenPayload('type=scene')).toEqual({
+    expect(parseImageTokenPayload('type=scene')).toMatchObject({
       type: 'scene',
       tags: ''
+    })
+  })
+
+  it('extracts optional image generation controls from token payload', () => {
+    expect(parseImageTokenPayload('type=scene, size=portrait, ratio=16:9, quality=high, format=webp, sunset beach')).toEqual({
+      type: 'scene',
+      tags: 'sunset beach',
+      options: {
+        type: 'scene',
+        size: 'portrait',
+        aspectRatio: '16:9',
+        quality: 'high',
+        outputFormat: 'webp'
+      }
     })
   })
 

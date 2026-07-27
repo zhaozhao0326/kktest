@@ -4,10 +4,13 @@
  */
 
 import { useConfigsStore } from '../../stores/configs'
+import { usePersonasStore } from '../../stores/personas'
+import { normalizeRoleAliasesToTemplateVars } from '../api/prompts'
 import { applyOptionalMaxTokens } from '../api/chatCompletions'
 import { makeId } from '../../utils/id'
 import { estimateTokens } from '../../utils/tokens'
 import {
+  getTemplateVarsForContact,
   initContactMemory,
   isValidMemoryCategory,
   isValidMemoryPriority,
@@ -138,9 +141,15 @@ export async function runMemoryManager(contact, scheduleSave, options = {}) {
       return `[${i}] ${m.content} (优先级:${priority}, 来源:${source}, 注入:${inject}${catStr})`
     }).join('\n')
 
+    const personasStore = usePersonasStore()
+    const storeAdapter = {
+      getPersonaForContact(cid) { return personasStore.getPersonaForContact(cid) }
+    }
+    const vars = getTemplateVarsForContact(storeAdapter, contact)
+
     const prompt = [
-      '你是"记忆管家"，负责把核心记忆整理成“连贯、沉浸、低token成本”的长期记忆池。',
-      '用 {{user}} 指代用户，用 {{char}} 指代AI角色。禁止输出任何JSON以外的内容。',
+      '你是”记忆管家”，负责把核心记忆整理成”连贯、沉浸、低token成本”的长期记忆池。',
+      `当前 {{user}} = “${vars.user}”, {{char}} = “${vars.char}”。在输出中使用 {{user}} 和 {{char}} 代替具体名字。禁止输出任何JSON以外的内容。`,
       '',
       `当前规模：${manageableMemories.length} 条，估算 ${currentTokenEstimate} token`,
       `优化目标：尽量收敛到 <= ${targetCount} 条，注入成本尽量 <= ${targetTokens} token`,
@@ -218,9 +227,12 @@ export async function runMemoryManager(contact, scheduleSave, options = {}) {
         if (!mem) continue
 
         let changed = false
-        if (item.content && typeof item.content === 'string' && item.content.trim() !== mem.content) {
-          mem.content = item.content.trim()
-          changed = true
+        if (item.content && typeof item.content === 'string') {
+          const normalizedContent = normalizeRoleAliasesToTemplateVars(item.content.trim())
+          if (normalizedContent !== mem.content) {
+            mem.content = normalizedContent
+            changed = true
+          }
         }
         if (item.priority && isValidMemoryPriority(item.priority) && item.priority !== mem.priority) {
           mem.priority = item.priority
@@ -292,7 +304,7 @@ export async function runMemoryManager(contact, scheduleSave, options = {}) {
         // Require at least 2 distinct live memories, otherwise skip to avoid net growth.
         if (sourceMemories.length < 2) continue
 
-        const mergedContent = String(mergeItem.content).trim()
+        const mergedContent = normalizeRoleAliasesToTemplateVars(String(mergeItem.content).trim())
         const normalizedMerged = normalizeMemoryContent(mergedContent)
         if (!normalizedMerged) continue
 

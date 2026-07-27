@@ -1,6 +1,8 @@
 import { getAllGifts } from '../../../data/gifts'
-
-const TOKEN_UNSAFE_GIFT_NAME_REGEX = /[%:：()[\]（）【】\r\n]/
+import {
+  resolveImagePromptStyle,
+  usesNaturalLanguageImagePrompt
+} from '../../imageGen/promptProfiles'
 import {
   describeStickerGroups,
   filterStickersByGroupIds,
@@ -8,6 +10,8 @@ import {
   normalizeStickers,
   sanitizeStickerGroupSelection
 } from '../../../utils/stickerGroups'
+
+const TOKEN_UNSAFE_GIFT_NAME_REGEX = /[%:：()[\]（）【】\r\n]/
 
 export function buildReplyFormatSystemPrompt() {
   return '引用回复：若要回复某条特定消息，在开头写 [quote:该消息的原文片段]，换行后写正文。不引用则直接写正文。'
@@ -183,9 +187,9 @@ export function buildSpecialFeaturesSystemPrompt(store) {
   }
 
   if (store.allowAIImageGeneration) {
-    const provider = String(store.vnImageGenConfig?.provider || '').trim().toLowerCase()
-    if (provider === 'nanobanana') {
-      rows.push('(image:简短自然语言描述) — 发图')
+    const promptStyle = resolveImagePromptStyle(store.vnImageGenConfig || {})
+    if (usesNaturalLanguageImagePrompt(promptStyle)) {
+      rows.push('(image:简短自然语言描述) — 发图，可选 size=portrait/landscape/square、quality=high')
     } else {
       rows.push('(image:danbooru_tag, ...) — 发图')
     }

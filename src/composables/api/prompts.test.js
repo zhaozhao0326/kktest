@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildChatFormatSystemPrompt,
   buildImageGenerationPrompt,
+  buildSpecialFeaturesSystemPrompt,
   buildStickerSystemPrompt,
   buildUnifiedSystemPrompt,
   insertLorebookEntries
@@ -80,6 +81,7 @@ describe('buildUnifiedSystemPrompt', () => {
     expect(mainSystemPrompt).toContain('<relationship_bootstrap>')
     expect(mainSystemPrompt).toContain('<current_dialogue>')
     expect(mainSystemPrompt).toContain('最后一条用户消息为直接回复目标')
+    expect(mainSystemPrompt).toContain('不要生成、补写、预测或代替用户')
     expect(mainSystemPrompt).not.toContain('<memory> 是你的长期记忆')
   })
 
@@ -107,6 +109,7 @@ describe('preset prompt sources', () => {
 
     expect(prompt).toContain('你正在和阿青手机聊天')
     expect(prompt).toContain('每行是一条消息，口语化')
+    expect(prompt).toContain('不代替阿青说话')
     expect(prompt).not.toContain('[quote:')
   })
 
@@ -160,5 +163,100 @@ describe('preset prompt sources', () => {
 
     expect(prompt).toContain('<image_generation>')
     expect(prompt).toContain('发图的唯一方式是在单独一行输出 image token')
+  })
+
+  it('uses GPT Image specific image token rules for OpenAI Images models', () => {
+    const prompt = buildImageGenerationPrompt({
+      allowAIImageGeneration: true,
+      globalPresetLorebookEnabled: true,
+      vnImageGenConfig: {
+        provider: 'openai_images',
+        openaiImages: { model: 'gpt-image2', promptStyle: 'auto' }
+      },
+      lorebook: { books: [] }
+    })
+
+    expect(prompt).toContain('GPT Image / OpenAI')
+    expect(prompt).toContain('自然语言画面描述')
+    expect(prompt).toContain('format=webp')
+  })
+
+  it('normalizes GPT Image provider aliases for prompt classification', () => {
+    const prompt = buildImageGenerationPrompt({
+      allowAIImageGeneration: true,
+      globalPresetLorebookEnabled: true,
+      vnImageGenConfig: {
+        provider: 'gptimage2',
+        openaiImages: { model: 'gpt-image2', promptStyle: 'auto' }
+      },
+      lorebook: { books: [] }
+    })
+
+    expect(prompt).toContain('GPT Image / OpenAI')
+    expect(prompt).toContain('自然语言画面描述')
+  })
+
+  it('can infer Danbooru rules from a tag-model name behind an OpenAI-compatible endpoint', () => {
+    const prompt = buildImageGenerationPrompt({
+      allowAIImageGeneration: true,
+      globalPresetLorebookEnabled: true,
+      vnImageGenConfig: {
+        provider: 'openai_images',
+        openaiImages: { model: 'sdxl-pony', promptStyle: 'auto' }
+      },
+      lorebook: { books: [] }
+    })
+
+    expect(prompt).toContain('danbooru 风格')
+    expect(prompt).toContain('(image:tag1, tag2, tag3, ...)')
+  })
+
+  it('dynamically swaps untouched built-in image generation presets by prompt style', () => {
+    const presetBook = createImageGenerationPresetBook(1)
+    const prompt = buildImageGenerationPrompt({
+      allowAIImageGeneration: true,
+      globalPresetLorebookEnabled: true,
+      vnImageGenConfig: {
+        provider: 'openai_images',
+        openaiImages: { model: 'gpt-image2', promptStyle: 'auto' }
+      },
+      lorebook: { books: [presetBook] }
+    })
+
+    expect(prompt).toContain('GPT Image / OpenAI')
+    expect(prompt).toContain('自然语言画面描述')
+  })
+
+  it('keeps user-edited image generation presets unchanged', () => {
+    const presetBook = createImageGenerationPresetBook(1)
+    presetBook.entries[0].content = '自定义发图规则：只在用户明确要求时输出 (image:...)。'
+
+    const prompt = buildImageGenerationPrompt({
+      allowAIImageGeneration: true,
+      globalPresetLorebookEnabled: true,
+      vnImageGenConfig: {
+        provider: 'openai_images',
+        openaiImages: { model: 'gpt-image2', promptStyle: 'auto' }
+      },
+      lorebook: { books: [presetBook] }
+    })
+
+    expect(prompt).toContain('自定义发图规则')
+    expect(prompt).not.toContain('GPT Image / OpenAI')
+  })
+})
+
+describe('buildSpecialFeaturesSystemPrompt', () => {
+  it('describes image tokens according to the resolved prompt style', () => {
+    const prompt = buildSpecialFeaturesSystemPrompt({
+      allowAIImageGeneration: true,
+      vnImageGenConfig: {
+        provider: 'openai_images',
+        openaiImages: { model: 'sdxl-pony', promptStyle: 'auto' }
+      }
+    })
+
+    expect(prompt).toContain('(image:danbooru_tag, ...) — 发图')
+    expect(prompt).not.toContain('(image:简短自然语言描述)')
   })
 })

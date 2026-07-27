@@ -1,6 +1,16 @@
 import { normalizeRoleAliasesToTemplateVars } from '../api/prompts'
 
 export const PRIORITY_ORDER = { high: 0, normal: 1, low: 2 }
+export const MEMORY_CONFIDENCE_ORDER = { low: 0, medium: 1, high: 2 }
+export const MEMORY_ENTITY_TYPES = {
+  person: '人物',
+  pet: '宠物',
+  place: '地点',
+  organization: '组织',
+  topic: '主题',
+  other: '其他'
+}
+const LOW_CONFIDENCE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 export const CATEGORY_LABELS = {
   preference: '偏好',
@@ -312,6 +322,72 @@ export function isValidMemoryCategory(value) {
   return !!CATEGORY_LABELS[value]
 }
 
+export function isValidMemoryConfidence(value) {
+  return MEMORY_CONFIDENCE_ORDER[value] != null
+}
+
+export function isValidMemoryEntityType(value) {
+  return !!MEMORY_ENTITY_TYPES[value]
+}
+
+export function normalizeMemoryEntity(value) {
+  const normalized = String(value || '').replace(/\s+/g, ' ').trim()
+  if (!normalized) return null
+  return normalized.length > 32 ? normalized.slice(0, 32).trim() : normalized
+}
+
+export function pickHigherMemoryConfidence(a, b) {
+  const aRank = MEMORY_CONFIDENCE_ORDER[a] ?? -1
+  const bRank = MEMORY_CONFIDENCE_ORDER[b] ?? -1
+  return aRank >= bRank ? a : b
+}
+
+export function getDefaultMemoryConfidence(source, enabled = true) {
+  const normalizedSource = String(source || '')
+  if (normalizedSource === 'manual' || normalizedSource === 'keyword' || normalizedSource === 'promoted' || normalizedSource === 'manager') {
+    return 'high'
+  }
+  if (normalizedSource === 'extracted') {
+    return enabled ? 'high' : 'medium'
+  }
+  return 'medium'
+}
+
+export function shouldAutoEnableMemoryByConfidence(confidence) {
+  return confidence === 'high'
+}
+
+export function getLowConfidenceMemoryExpiry(now = Date.now()) {
+  return now + LOW_CONFIDENCE_TTL_MS
+}
+
+export function upgradeMemoryConfidenceByExtractionCount(confidence, extractionCount) {
+  const normalized = isValidMemoryConfidence(confidence) ? confidence : 'medium'
+  const count = Math.max(0, Number(extractionCount) || 0)
+  if (count < 2) return normalized
+  if (normalized === 'low') return 'medium'
+  if (normalized === 'medium') return 'high'
+  return normalized
+}
+
+export function isExpiredCoreMemory(memory, now = Date.now()) {
+  const expiresAt = Number(memory?.expiresAt || 0)
+  if (!Number.isFinite(expiresAt) || expiresAt <= 0) return false
+  return expiresAt <= now
+}
+
+export function confirmCoreMemory(memory, options = {}) {
+  if (!memory || typeof memory !== 'object') return memory
+  const now = Number(options.now) || Date.now()
+  const source = String(options.source || 'promoted').trim() || 'promoted'
+  memory.source = source
+  memory.confidence = 'high'
+  memory.expiresAt = null
+  memory.lastConfirmedAt = now
+  memory.enabled = true
+  return memory
+}
+
 function rankMemorySource(source) {
   const value = String(source || '')
   if (value === 'manual') return 0
@@ -472,6 +548,24 @@ export function initContactMemory(contact) {
       if (memory.category && !isValidMemoryCategory(memory.category)) memory.category = null
       if (!memory.source) memory.source = 'manual'
       if (!Number.isFinite(memory.time)) memory.time = Date.now()
+      if (!isValidMemoryConfidence(memory.confidence)) {
+        memory.confidence = getDefaultMemoryConfidence(memory.source, memory.enabled)
+      }
+      const normalizedEntity = normalizeMemoryEntity(memory.entity)
+      memory.entity = normalizedEntity
+      if (!isValidMemoryEntityType(memory.entityType)) memory.entityType = null
+      const extractionCount = Math.max(0, Math.floor(Number(memory.extractionCount || (memory.source === 'extracted' ? 1 : 0)) || 0))
+      memory.extractionCount = extractionCount
+      const recallCount = Math.max(0, Math.floor(Number(memory.recallCount || 0) || 0))
+      memory.recallCount = recallCount
+      memory.lastRecalledAt = Number.isFinite(Number(memory.lastRecalledAt)) ? Number(memory.lastRecalledAt) : null
+      memory.lastConfirmedAt = Number.isFinite(Number(memory.lastConfirmedAt))
+        ? Number(memory.lastConfirmedAt)
+        : (memory.confidence === 'high' ? memory.time : null)
+      memory.expiresAt = Number.isFinite(Number(memory.expiresAt)) ? Number(memory.expiresAt) : null
+      if (memory.confidence !== 'low' && memory.expiresAt) {
+        memory.expiresAt = null
+      }
     }
   }
 
@@ -500,4 +594,42 @@ export function initContactMemory(contact) {
   }
 
   return contact
+}
+
+export function clearContactMemoryData(contact) {
+  if (!contact || typeof contact !== 'object') return null
+  initContactMemory(contact)
+
+  const messages = Array.isArray(contact.msgs) ? contact.msgs : []
+  const lastMessageId = messages[messages.length - 1]?.id || null
+
+  contact.memory.core = []
+  contact.memory.longTerm = []
+  contact.memory.shortTerm = []
+  contact.memory.lastSummaryMsgId = lastMessageId
+  contact.memory.lastLongTermTime = null
+  contact.memory.lastAIMemoryMsgId = lastMessageId
+  contact.memory.contextSummary = null
+  contact.memory.lastManagerRunAt = null
+  contact.memory.momentsSummary = null
+  contact.memory.momentTurnCount = 0
+  contact.memory.amCounter = 0
+
+  return contact.memory
+}
+
+export function sweepExpiredCoreMemories(contact, now = Date.now()) {
+  if (!contact || typeof contact !== 'object') return 0
+  initContactMemory(contact)
+  if (!Array.isArray(contact.memory?.core) || contact.memory.core.length === 0) return 0
+
+  const before = contact.memory.core.length
+  contact.memory.core = contact.memory.core.filter((memory) => {
+    if (!memory || typeof memory !== 'object') return false
+    if (!isExpiredCoreMemory(memory, now)) return true
+    if (memory.lastConfirmedAt) return true
+    return false
+  })
+
+  return Math.max(0, before - contact.memory.core.length)
 }

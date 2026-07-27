@@ -26,6 +26,7 @@ html, body, #app {
 :root {
   --app-vh: 100dvh;
   --app-vw: 100vw;
+  --app-vv-top: 0px;
   --kb-inset: 0px;
 
   /* iOS PWA safe areas (Dynamic Island / notch / home indicator) */
@@ -216,9 +217,19 @@ html, body, #app {
   --app-pb-lg: max(10px, var(--app-safe-bottom));
 }
 
+@media (max-width: 639px) {
+  :root.keyboard-open .edit-modal-shell {
+    align-items: flex-end;
+    padding: 12px 24px max(12px, env(safe-area-inset-bottom, 0px));
+  }
+}
+
 /* Keyboard animation on Android WebView/PWA can stutter with heavy blur layers. */
 :root.keyboard-open .glass-panel,
 :root.keyboard-open .glass-input-area,
+:root.keyboard-open .chat-input-field,
+:root.keyboard-open .chat-input-plus,
+:root.keyboard-open .chat-timestamp,
 :root.keyboard-open .chat-input-menu,
 :root.keyboard-open .narration,
 :root.keyboard-open .call-bubble,
@@ -332,6 +343,35 @@ html.ios-standalone #screen {
   border-radius: var(--input-radius);
 }
 
+/* iMessage 风格输入栏：加号为灰色圆底按钮，发送按钮嵌在胶囊内 */
+.chat-input-plus {
+  border-radius: 999px;
+  background: var(--plus-btn-bg, rgba(116,116,128,0.12));
+}
+.dark .chat-input-plus {
+  background: var(--plus-btn-bg, rgba(118,118,128,0.24));
+}
+
+.chat-input-textarea::placeholder {
+  color: var(--text-secondary, #8E8E93);
+  opacity: 0.75;
+}
+
+/* 发送按钮：输入为空时置灰（仍可点击：催AI回复/发送已附加图片），
+   键入后变回主题色。仅默认圆形图标样式生效；文字发送/麦克风样式、
+   预设主题（用 !important 覆盖背景）与不支持 :has() 的旧内核均不受影响。 */
+.chat-input-send-icon {
+  transition: background-color 0.18s ease;
+}
+.chat-input-field:has(.chat-input-textarea:placeholder-shown) .chat-input-send-icon {
+  background-color: rgba(116,116,128,0.28);
+}
+
+/* 文字样式发送按钮较宽，为其加大胶囊右侧留白，避免盖住输入文本 */
+.chat-input-field:has(.chat-input-send-text) {
+  padding-right: 64px;
+}
+
 .bubble {
   position: relative;
   display: inline-flex;
@@ -415,14 +455,18 @@ html.ios-standalone #screen {
 
 .bubble-ai.in-group { margin-bottom: 2px !important; }
 
+/* 引用条：圆角面板 + 圆头竖条（跟随 currentColor 自适应用户/AI/深色），最多 3 行截断 */
 .reply-context {
-  font-size: 12px;
-  line-height: 16px;
-  margin-bottom: 6px;
-  padding: 6px 8px 6px 10px;
-  border-left: 3px solid rgba(0,0,0,0.25);
-  border-radius: 10px;
-  background: rgba(0,0,0,0.05);
+  position: relative;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  font-size: 12.5px;
+  line-height: 17px;
+  margin: 1px 0 7px;
+  padding: 6px 10px 6px 15px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.055);
   color: rgba(0,0,0,0.55);
   max-width: 100%;
   min-width: 0;
@@ -432,22 +476,33 @@ html.ios-standalone #screen {
   word-break: break-word;
 }
 
+.reply-context::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.45;
+}
+
+.reply-context:empty { display: none; }
+
 .bubble-user .reply-context {
-  border-left-color: rgba(255,255,255,0.55);
-  background: rgba(255,255,255,0.18);
-  color: rgba(255,255,255,0.78);
+  background: rgba(255,255,255,0.20);
+  color: rgba(255,255,255,0.92);
 }
 
 .bubble-ai .reply-context {
-  border-left-color: rgba(0,0,0,0.22);
   background: rgba(0,0,0,0.06);
   color: rgba(0,0,0,0.60);
 }
 
 .dark .bubble-ai .reply-context {
-  border-left-color: rgba(255,255,255,0.25);
-  background: rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.72);
+  background: rgba(255,255,255,0.09);
+  color: rgba(255,255,255,0.75);
 }
 
 .msg-meta { font-size: 11px; margin-top: 1px; color: var(--meta-color, #8E8E93); font-weight: 500; }

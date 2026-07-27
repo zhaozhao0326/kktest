@@ -3,6 +3,10 @@
  */
 import TOOL_DEFINITIONS from './toolDefinitions'
 
+// 上限只作为 prompt 体积的保险丝：内置工具最多 4 个，其余留给 MCP 工具。
+// intent 模式下 selectToolsForIntent 还会按意图收敛到更小的集合。
+const MAX_TOOLS = 32
+
 const executorMap = new Map()
 TOOL_DEFINITIONS.forEach(t => executorMap.set(t.name, t.execute))
 
@@ -40,6 +44,12 @@ export function getAvailableTools(settingsStore, contact, extraTools = []) {
         parameters: ext.parameters || { type: 'object', properties: {} }
       }
     })
+  }
+
+  if (tools.length > MAX_TOOLS) {
+    const removed = tools.length - MAX_TOOLS
+    tools.length = MAX_TOOLS
+    console.warn(`[ToolRegistry] Truncated ${removed} tools (total exceeded ${MAX_TOOLS})`)
   }
 
   return tools

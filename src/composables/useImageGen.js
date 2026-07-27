@@ -1,21 +1,46 @@
 import { useVNStore } from '../stores/vn'
 import { generateNovelAI } from './imageGen/novelai'
 import { generateNanoBanana } from './imageGen/nanobanana'
+import { generateOpenAIImage } from './imageGen/openaiImages'
 import { generateCustom } from './imageGen/custom'
+import { isNaturalImageGenProvider, normalizeImageGenProvider } from './imageGen/providers'
 import { imageUrlToBase64 } from '../utils/imageData'
+import { processSpriteCutoutUrl } from './imageGen/spriteCutout'
+
+const DEFAULT_IMAGE_REQUEST_TIMEOUT_MS = 90_000
+const MIN_IMAGE_REQUEST_TIMEOUT_MS = 10_000
+const MAX_IMAGE_REQUEST_TIMEOUT_MS = 600_000
+
+function normalizeImageRequestTimeoutMs(value, fallback = DEFAULT_IMAGE_REQUEST_TIMEOUT_MS) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return fallback
+  return Math.max(MIN_IMAGE_REQUEST_TIMEOUT_MS, Math.min(MAX_IMAGE_REQUEST_TIMEOUT_MS, Math.round(n)))
+}
 
 export function useImageGen() {
   const vnStore = useVNStore()
 
+  async function processSpriteCutout(url) {
+    return await processSpriteCutoutUrl(url)
+  }
+
   async function generateImage(prompt, options = {}) {
-    const provider = vnStore.imageGenConfig?.provider
+    const provider = normalizeImageGenProvider(vnStore.imageGenConfig?.provider)
+    const timeoutMs = normalizeImageRequestTimeoutMs(
+      options.timeoutMs,
+      normalizeImageRequestTimeoutMs(vnStore.imageGenConfig?.imageRequestTimeoutMs)
+    )
+    const requestOptions = { ...options, timeoutMs }
+
     switch (provider) {
       case 'novelai':
-        return generateNovelAI(prompt, vnStore.imageGenConfig?.novelai, options)
+        return generateNovelAI(prompt, vnStore.imageGenConfig?.novelai, requestOptions)
       case 'nanobanana':
-        return generateNanoBanana(prompt, vnStore.imageGenConfig?.nanobanana, options)
+        return generateNanoBanana(prompt, vnStore.imageGenConfig?.nanobanana, requestOptions)
+      case 'openai_images':
+        return generateOpenAIImage(prompt, vnStore.imageGenConfig?.openaiImages, requestOptions)
       case 'custom':
-        return generateCustom(prompt, vnStore.imageGenConfig?.custom, options)
+        return generateCustom(prompt, vnStore.imageGenConfig?.custom, requestOptions)
       default:
         throw new Error('未知的图像生成 provider: ' + provider)
     }
@@ -36,7 +61,12 @@ export function useImageGen() {
     const resourceKey = `${character.contactId}_${expression}`
 
     const existing = vnStore.getResource('sprites', resourceKey)
-    if (existing && !options.force) return existing.url
+    if (existing && !options.force) {
+      if (existing.autoCutout) return existing.url
+      const url = await processSpriteCutout(existing.url)
+      vnStore.setResource('sprites', resourceKey, { ...existing, url, autoCutout: true })
+      return url
+    }
 
     let url = null
 
@@ -45,7 +75,7 @@ export function useImageGen() {
       const baseSprite = vnStore.getResource('sprites', baseKey)
 
       if (baseSprite?.url) {
-        const editPrompt = vnStore.imageGenConfig?.provider === 'nanobanana'
+        const editPrompt = isNaturalImageGenProvider(vnStore.imageGenConfig?.provider)
           ? `Edit this anime character illustration: change the facial expression to "${expression}". Keep the exact same character design, pose, clothing, hairstyle, and art style. Only modify the facial expression.`
           : `${character.spritePrompt || ''}, ${expression} expression, upper body, visual novel character sprite, white background, anime style`
 
@@ -65,10 +95,13 @@ export function useImageGen() {
       url = await generateImage(prompt, { width: 832, height: 1216 })
     }
 
+    url = await processSpriteCutout(url)
+
     vnStore.setResource('sprites', resourceKey, {
       url,
       prompt: `${expression} expression`,
-      isBase: expression === 'normal'
+      isBase: expression === 'normal',
+      autoCutout: true
     })
 
     return url
@@ -103,6 +136,7 @@ export function useImageGen() {
     generateImage,
     generateBackground,
     generateSprite,
+    processSpriteCutout,
     batchGenerate
   }
 }

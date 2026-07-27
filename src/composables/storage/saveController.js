@@ -324,11 +324,11 @@ export function createStorageSaveController(options) {
       })
 
       void maybeWarnAboutPersistence(snapshot)
-      if (!suppressCloudSync && options?.reason === 'pagehide') {
+      if (!suppressCloudSync) {
         void notifyCloudSyncLocalSave({
           snapshot,
           storageApi: getStorageApi(),
-          reason: 'pagehide'
+          reason: options?.reason === 'pagehide' ? 'pagehide' : 'auto'
         })
       }
       return { snapshot, mediaEntries, messagePartitions }

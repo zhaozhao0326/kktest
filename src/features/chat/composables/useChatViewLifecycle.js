@@ -19,6 +19,27 @@ export function useChatViewLifecycle(options) {
   let scrollRafId = 0
   const handledRouteJumpKey = ref('')
 
+  function getRouteJumpKey() {
+    const contactId = String(route.params.contactId ?? '').trim()
+    const msgId = String(route.query.jumpToMsg ?? '').trim()
+    const partKey = favoritePartIndexToKey(route.query.jumpToPart)
+    if (!contactId || !msgId) return ''
+    return `${contactId}:${msgId}:${partKey}`
+  }
+
+  function hasUnhandledRouteJump() {
+    const jumpKey = getRouteJumpKey()
+    return !!jumpKey && handledRouteJumpKey.value !== jumpKey
+  }
+
+  function cancelScheduledScroll() {
+    scrollScheduled = false
+    if (scrollRafId) {
+      cancelAnimationFrame(scrollRafId)
+      scrollRafId = 0
+    }
+  }
+
   function syncActiveChatFromRoute() {
     const contactId = String(route.params.contactId ?? '').trim()
     if (!contactId) return null
@@ -31,6 +52,7 @@ export function useChatViewLifecycle(options) {
   }
 
   function scrollToBottom() {
+    if (hasUnhandledRouteJump()) return
     if (scrollScheduled) return
     scrollScheduled = true
     nextTick(() => {
@@ -82,9 +104,10 @@ export function useChatViewLifecycle(options) {
       const msgs = contact.msgs
       if (!Array.isArray(msgs) || !msgs.some(item => String(item?.id ?? '') === msgId)) return
 
-      const jumpKey = `${contactId}:${msgId}:${partKey}`
+      const jumpKey = getRouteJumpKey()
       if (handledRouteJumpKey.value === jumpKey) return
 
+      cancelScheduledScroll()
       handledRouteJumpKey.value = jumpKey
       await jumpToMessage(msgId, partKey)
     },

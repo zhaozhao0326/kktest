@@ -16,6 +16,7 @@ import { getCachedParsedParts, isMessageEndingWithCallPart } from './parseCache'
 import { getInteractionState } from '../interactiveMessages'
 
 const TOOL_LOG_TEXT_MAX_CHARS = 320
+const REASONING_SUMMARY_MAX_CHARS = 72
 
 function truncateToolLogText(value, maxChars = TOOL_LOG_TEXT_MAX_CHARS) {
   const text = String(value || '').trim()
@@ -41,8 +42,49 @@ function buildToolLogBlocks(message, blockMsgId, logEntries = []) {
     resultPreview: truncateToolLogText(entry?.resultPreview || ''),
     errorText: truncateToolLogText(entry?.errorText || '', 160),
     durationLabel: truncateToolLogText(entry?.durationLabel || '', 24),
-    round: Math.max(1, Number(entry?.round || 1) || 1)
+    round: Math.max(1, Number(entry?.round || 1) || 1),
+    indexInRound: Math.max(0, Number(entry?.indexInRound ?? index) || 0)
   }))
+}
+
+function buildReasoningBlocks(message, blockMsgId) {
+  const rawLogs = Array.isArray(message?.reasoningLogs) && message.reasoningLogs.length > 0
+    ? message.reasoningLogs
+    : (String(message?.reasoningContent || '').trim()
+        ? [{ content: message.reasoningContent, round: 1 }]
+        : [])
+
+  return rawLogs.map((entry, index) => {
+    const content = String(entry?.content || '').trim()
+    if (!content) return null
+    const compactSummary = content.replace(/\s+/g, ' ').trim()
+    return {
+      type: 'reasoning',
+      key: `reasoning-${message.id}-${index}`,
+      msgId: blockMsgId,
+      content,
+      summary: truncateToolLogText(compactSummary, REASONING_SUMMARY_MAX_CHARS),
+      round: Math.max(1, Number(entry?.round || 1) || 1),
+      indexInRound: index,
+      streaming: message?.reasoningStreaming === true && Number(message?.reasoningStreamingRound || 1) === Math.max(1, Number(entry?.round || 1) || 1)
+    }
+  }).filter(Boolean)
+}
+
+function buildAgentTraceBlocks(message, blockMsgId, options = {}) {
+  const traceBlocks = []
+  if (options.showReasoning) {
+    traceBlocks.push(...buildReasoningBlocks(message, blockMsgId))
+  }
+  if (options.showToolLog && Array.isArray(message?.toolLogs) && message.toolLogs.length > 0) {
+    traceBlocks.push(...buildToolLogBlocks(message, blockMsgId, message.toolLogs))
+  }
+
+  return traceBlocks.sort((left, right) => {
+    if (left.round !== right.round) return left.round - right.round
+    if (left.type !== right.type) return left.type === 'reasoning' ? -1 : 1
+    return left.indexInRound - right.indexInRound
+  })
 }
 
 function normalizeGiftSnapshot(snapshot) {
@@ -100,6 +142,7 @@ export function buildMessageBlocks(options) {
     allowAIMusicRecommend,
     allowAIMeet,
     showToolLog,
+    showReasoning,
     timestampGapMs,
     getAnimateMsgId,
     isGroupChat,
@@ -154,6 +197,7 @@ export function buildMessageBlocks(options) {
     const aiMusicEnabled = allowAIMusicRecommend ? allowAIMusicRecommend() : false
     const aiMeetEnabled = allowAIMeet ? allowAIMeet() : false
     const toolLogEnabled = showToolLog ? showToolLog() : false
+    const reasoningEnabled = showReasoning ? showReasoning() : false
     const shouldShowNarrations = showNarrations ? showNarrations() : true
     const createFavoriteState = (message, partIndex = null) => ({
       favorited: isMessagePartFavorited(message, partIndex),
@@ -241,6 +285,18 @@ export function buildMessageBlocks(options) {
         if (explicitContactId) return explicitContactId
         if (isUser) return ''
         if (!groupChat) return activeContactId
+        const senderId = String(m.senderId || '').trim()
+        if (senderId) {
+          const member = memberMap.get(senderId)
+          const contactId = String(member?.contactId || '').trim()
+          if (contactId) return contactId
+        }
+        const senderNameValue = String(m.senderName || '').trim()
+        if (senderNameValue) {
+          const member = memberNameMap.get(senderNameValue)
+          const contactId = String(member?.contactId || '').trim()
+          if (contactId) return contactId
+        }
         return ''
       })()
 
@@ -376,9 +432,16 @@ export function buildMessageBlocks(options) {
         continue
       }
 
-      if (toolLogEnabled && Array.isArray(m?.toolLogs) && m.toolLogs.length > 0) {
-        result.push(...buildToolLogBlocks(m, blockMsgId, m.toolLogs))
-      }
+      const agentTraceBlocks = buildAgentTraceBlocks(m, blockMsgId, {
+        showToolLog: toolLogEnabled,
+        showReasoning: reasoningEnabled
+      })
+      agentTraceBlocks.forEach(block => {
+        result.push({
+          ...block,
+          isGroupChat: groupChat
+        })
+      })
 
       const displayContent = m.displayContent != null ? m.displayContent : m.content
       const parseOptions = {

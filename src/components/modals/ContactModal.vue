@@ -207,8 +207,8 @@
             <div class="flex items-center gap-2">
               <span class="text-xl">🌐</span>
               <div>
-                <div class="text-[17px] text-black dark:text-white">全部已启用服务器</div>
-                <div class="text-[12px] text-[#8E8E93]">留空时跟随全局已启用列表</div>
+                <div class="text-[17px] text-black dark:text-white">不使用 MCP</div>
+                <div class="text-[12px] text-[#8E8E93]">留空时不发现外部工具</div>
               </div>
             </div>
             <div
@@ -228,10 +228,7 @@
               <span class="text-xl">🧰</span>
               <div>
                 <div class="text-[17px] text-black dark:text-white">{{ server.name || server.id }}</div>
-                <div class="text-[12px] text-[#8E8E93]">
-                  {{ server.transport === 'http' ? 'HTTP' : 'STDIO' }}
-                  <span v-if="server.enabled === false"> · 全局已禁用</span>
-                </div>
+                <div class="text-[12px] text-[#8E8E93]">{{ mcpServerSubtitle(server) }}</div>
               </div>
             </div>
             <div
@@ -351,7 +348,8 @@ import { isReservedPromptPresetBook } from '../../utils/presetPromptBooks'
 import { compressImage } from '../../composables/useImage'
 import { showConfirm } from '../../composables/useConfirm'
 import { normalizeImageUrlInput } from '../../utils/mediaUrl'
-import { normalizeMcpServerIds } from '../../utils/mcpServers'
+import { sanitizeMiniMaxVoiceId } from '../../utils/minimaxConfig'
+import { listAvailableMcpServers, normalizeMcpServerIds } from '../../utils/mcpServers'
 import IosModal from '../common/IosModal.vue'
 
 const props = defineProps({
@@ -387,11 +385,15 @@ const availableLorebooks = computed(() => {
 })
 
 const availableStickerGroups = computed(() => stickersStore.stickerGroups || [])
-const availableMcpServers = computed(() => (
-  Array.isArray(settingsStore.toolCallingConfig?.mcpServers)
-    ? settingsStore.toolCallingConfig.mcpServers
-    : []
-))
+const availableMcpServers = computed(() => listAvailableMcpServers(settingsStore.toolCallingConfig))
+
+function mcpServerSubtitle(server) {
+  const disabledSuffix = server?.enabled === false ? ' · 全局已禁用' : ''
+  if (server?.source === 'notion') return `Notion${disabledSuffix}`
+  if (server?.source === 'direct') return `MCP 直连${disabledSuffix}`
+  const transport = server?.transport === 'http' ? 'HTTP' : 'STDIO'
+  return `本地桥接 · ${transport}${disabledSuffix}`
+}
 
 const avatarInput = ref(null)
 const tempAvatar = ref(null)
@@ -576,7 +578,7 @@ function saveContact() {
       contactsStore.contacts[contactIndex].mcpServerIds = [...mcpServerIds]
       contactsStore.contacts[contactIndex].configId = form.configId
       contactsStore.contacts[contactIndex].edgeVoiceId = form.edgeVoiceId.trim()
-      contactsStore.contacts[contactIndex].minimaxVoiceId = form.minimaxVoiceId.trim()
+      contactsStore.contacts[contactIndex].minimaxVoiceId = sanitizeMiniMaxVoiceId(form.minimaxVoiceId)
       contactsStore.contacts[contactIndex].maxMessages = form.maxMessages
       contactsStore.contacts[contactIndex].chatBackground = form.chatBackground
       if (!Array.isArray(contactsStore.contacts[contactIndex].callHistory)) {
@@ -601,7 +603,7 @@ function saveContact() {
       mcpServerIds: [...mcpServerIds],
       configId: form.configId,
       edgeVoiceId: form.edgeVoiceId.trim(),
-      minimaxVoiceId: form.minimaxVoiceId.trim(),
+      minimaxVoiceId: sanitizeMiniMaxVoiceId(form.minimaxVoiceId),
       maxMessages: form.maxMessages,
       chatBackground: form.chatBackground,
       callHistory: []
@@ -617,7 +619,10 @@ function saveContact() {
 
 async function clearChatHistory() {
   if (!editingContact.value) return
-  const confirmed = await showConfirm({ message: `确定清空 ${currentMsgCount.value} 条聊天记录?`, destructive: true })
+  const confirmed = await showConfirm({
+    message: `确定清空 ${currentMsgCount.value} 条聊天记录？角色记忆不会随之删除。`,
+    destructive: true
+  })
   if (!confirmed) return
   const contactIndex = contactsStore.contacts.findIndex(x => x.id === editingContact.value.id)
   if (contactIndex !== -1) {

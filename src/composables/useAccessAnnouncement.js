@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-const ACCESS_ANNOUNCEMENT_ENDPOINT = '/api/access-announcement'
+const ACCESS_ANNOUNCEMENT_ENDPOINT = '/api/access?action=announcement'
 const ACCESS_ANNOUNCEMENT_SEEN_KEY = 'aichat_access_announcement_seen'
 const ACCESS_ANNOUNCEMENT_GUEST_KEY = 'guest'
 

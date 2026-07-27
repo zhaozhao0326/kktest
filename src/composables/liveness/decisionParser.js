@@ -157,7 +157,7 @@ function parseKeyValueLines(text) {
   for (const raw of lines) {
     const line = String(raw || '').trim()
     if (!line) continue
-    const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*|动作|内容|文本|消息|动态|延迟|心情|原因|回复)\s*[:=]\s*(.+)$/)
+    const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*|动作|内容|文本|消息|动态|目标|评论|延迟|心情|原因|回复)\s*[:=]\s*(.+)$/)
     if (!m) continue
     const key = String(m[1] || '').trim().toLowerCase()
     if (!key || Object.prototype.hasOwnProperty.call(result, key)) continue
@@ -169,18 +169,19 @@ function parseKeyValueLines(text) {
 }
 
 export function parseDecision(text, { delayMin = 5, delayMax = 120 } = {}) {
-  const validActions = ['message', 'read_only', 'ignore', 'post_moment']
+  const validActions = ['message', 'read_only', 'ignore', 'post_moment', 'comment_moment', 'like_moment']
   const cleaned = stripMarkdownCodeFence(text)
   const obj = tryParseLooseObject(cleaned)
   const kv = parseKeyValueLines(cleaned)
 
+  const actionAlternation = 'message|read_only|ignore|post_moment|comment_moment|like_moment'
   const rawAction = obj
     ? getObjectField(obj, ['action', 'a', 'type'])
     : (kv.action || kv.a || kv.type || kv['动作'] || '')
   const actionCandidate = rawAction || pickFirstRegex(cleaned, [
-    /"(?:action|a|type)"\s*:\s*"(message|read_only|ignore|post_moment)"/i,
-    /(?:^|[\s,{])(?:action|a|type)\s*[:=]\s*(message|read_only|ignore|post_moment)\b/i,
-    /(?:^|\n)\s*动作\s*[:=]\s*(message|read_only|ignore|post_moment)\b/i
+    new RegExp(`"(?:action|a|type)"\\s*:\\s*"(${actionAlternation})"`, 'i'),
+    new RegExp(`(?:^|[\\s,{])(?:action|a|type)\\s*[:=]\\s*(${actionAlternation})\\b`, 'i'),
+    new RegExp(`(?:^|\\n)\\s*动作\\s*[:=]\\s*(${actionAlternation})\\b`, 'i')
   ])
   const action = validActions.includes(String(actionCandidate || '').trim().toLowerCase())
     ? String(actionCandidate).trim().toLowerCase()
@@ -206,6 +207,22 @@ export function parseDecision(text, { delayMin = 5, delayMax = 120 } = {}) {
         /(?:^|\n)\s*动态\s*[:=]\s*([^\n]+)/i
       ]))
   )
+  const targetMomentId = String(
+    obj
+      ? getObjectField(obj, ['target', 'target_moment_id', 'targetMomentId', 'moment_id', 'momentId']) || ''
+      : (kv.target || kv.target_moment_id || kv.momentid || kv.moment_id || kv['目标'] || pickFirstRegex(cleaned, [
+        /"(?:target|target_moment_id|moment_id|momentId)"\s*:\s*"([^"]*)"/i,
+        /(?:^|\n)\s*(?:target|target_moment_id|moment_id|momentId|目标)\s*[:=]\s*([^\n]+)/i
+      ]))
+  ).trim()
+  const commentContent = String(
+    obj
+      ? getObjectField(obj, ['comment', 'comment_content', 'reply']) || ''
+      : (kv.comment || kv.comment_content || kv['评论'] || pickFirstRegex(cleaned, [
+        /"(?:comment|comment_content)"\s*:\s*"([^"]*)"/i,
+        /(?:^|\n)\s*(?:comment|comment_content|评论)\s*[:=]\s*([^\n]+)/i
+      ]))
+  ).trim()
   const delayRaw = obj
     ? getObjectField(obj, ['delay_seconds', 'd', 'delay'])
     : (kv.delay_seconds || kv.d || kv.delay || kv['延迟'] || pickFirstRegex(cleaned, [
@@ -232,12 +249,14 @@ export function parseDecision(text, { delayMin = 5, delayMax = 120 } = {}) {
 
   const delayNum = parseLooseNumber(delayRaw)
   const moodNum = parseLooseNumber(moodRaw)
-  const hasAnySignal = !!(actionCandidate || content || momentContent || reason || delayNum !== null || moodNum !== null)
+  const hasAnySignal = !!(actionCandidate || content || momentContent || commentContent || targetMomentId || reason || delayNum !== null || moodNum !== null)
 
   return {
     action,
     content,
     momentContent,
+    targetMomentId,
+    commentContent,
     delaySeconds: Math.max(delayMin, Math.min(delayMax, delayNum ?? delayMin)),
     moodDelta: Math.max(-0.3, Math.min(0.3, moodNum ?? 0)),
     reason: reason || (hasAnySignal ? '' : 'parse_error')

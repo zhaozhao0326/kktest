@@ -20,7 +20,7 @@ describe('seat manager state flow', () => {
 
   function createFetchMock(claimErrorCode = 'device_limit_reached') {
     return vi.fn(async (url) => {
-      if (url === '/api/access-session') {
+      if (url === '/api/access?action=session') {
         return {
           ok: true,
           json: async () => ({
@@ -55,7 +55,7 @@ describe('seat manager state flow', () => {
         }
       }
 
-      if (url === '/api/access-device-claim') {
+      if (url === '/api/access?action=device') {
         return {
           ok: false,
           json: async () => ({

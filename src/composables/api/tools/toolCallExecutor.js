@@ -171,6 +171,7 @@ export async function executeToolCalls(toolCalls, context, externalExecutors = n
       messages.push({
         role: 'tool',
         tool_call_id: id,
+        name: toolName,
         content: JSON.stringify(payload)
       })
       logs.push(buildToolLogEntry({
@@ -205,6 +206,7 @@ export async function executeToolCalls(toolCalls, context, externalExecutors = n
       messages.push({
         role: 'tool',
         tool_call_id: id,
+        name: toolName,
         content: JSON.stringify(payload)
       })
       logs.push(buildToolLogEntry({
@@ -223,6 +225,7 @@ export async function executeToolCalls(toolCalls, context, externalExecutors = n
       messages.push({
         role: 'tool',
         tool_call_id: id,
+        name: toolName,
         content: JSON.stringify(result)
       })
       logs.push(buildToolLogEntry({
@@ -238,6 +241,7 @@ export async function executeToolCalls(toolCalls, context, externalExecutors = n
       messages.push({
         role: 'tool',
         tool_call_id: id,
+        name: toolName,
         content: JSON.stringify(payload)
       })
       logs.push(buildToolLogEntry({

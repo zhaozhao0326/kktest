@@ -48,7 +48,7 @@ export default async function handler(req, res) {
     res.setHeader('Vary', 'Origin')
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-mcp-url, x-mcp-headers')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version, x-mcp-url, x-mcp-headers')
 
   if (req.method === 'OPTIONS') {
     if (!isAllowedBrowserOrigin(req)) {
@@ -99,6 +99,12 @@ export default async function handler(req, res) {
   if (req.headers['authorization'] && !extraHeaders['authorization'] && !extraHeaders['Authorization']) {
     forwardHeaders['authorization'] = req.headers['authorization']
   }
+  if (req.headers['mcp-session-id'] && !extraHeaders['mcp-session-id'] && !extraHeaders['Mcp-Session-Id']) {
+    forwardHeaders['mcp-session-id'] = req.headers['mcp-session-id']
+  }
+  if (req.headers['mcp-protocol-version'] && !extraHeaders['mcp-protocol-version'] && !extraHeaders['Mcp-Protocol-Version']) {
+    forwardHeaders['mcp-protocol-version'] = req.headers['mcp-protocol-version']
+  }
 
   try {
     const method = req.method === 'GET' ? 'GET' : 'POST'
@@ -114,6 +120,10 @@ export default async function handler(req, res) {
     if (ct) res.setHeader('content-type', ct)
     const cc = upstream.headers.get('cache-control')
     if (cc) res.setHeader('cache-control', cc)
+    const sessionId = upstream.headers.get('mcp-session-id')
+    if (sessionId) res.setHeader('mcp-session-id', sessionId)
+    const protocolVersion = upstream.headers.get('mcp-protocol-version')
+    if (protocolVersion) res.setHeader('mcp-protocol-version', protocolVersion)
 
     if (!upstream.body?.getReader) {
       const buffer = Buffer.from(await upstream.arrayBuffer())

@@ -34,6 +34,10 @@
           <h1 class="date-big">{{ dayLabel }}</h1>
           <p class="weekday-label">{{ entry.weekday }}</p>
           <div class="tag-row">
+            <span v-if="entry.source === 'assistant'" class="meta-chip source-chip">
+              <span class="material-symbols-outlined" style="font-size:14px">auto_awesome</span>
+              AI 代记
+            </span>
             <span v-if="entry.weather" class="meta-chip">
               <span class="material-symbols-outlined" style="font-size:14px">sunny</span>
               {{ entry.weather }}
@@ -430,6 +434,12 @@ function formatRelTime(ts) {
   background: rgba(255,182,185,0.15);
   color: var(--text-muted, #a89f9e);
   border: 1px solid rgba(255,182,185,0.3);
+}
+
+.source-chip {
+  background: rgba(0,122,255,0.1);
+  border-color: rgba(0,122,255,0.18);
+  color: var(--primary-color, #007AFF);
 }
 
 /* Content */

@@ -1,4 +1,5 @@
 import { reactive, ref } from 'vue'
+import { isNaturalImageGenProvider, normalizeImageGenProvider } from '../../../composables/imageGen/providers'
 import { resolveBaseSeed, resolveExpressionSeed } from '../utils/generationPrefs'
 
 export function useVNStudioGeneration({
@@ -7,6 +8,7 @@ export function useVNStudioGeneration({
   vnStore,
   charResStore,
   generateImage,
+  processSpriteCutout,
   scheduleSave,
   spriteSize,
   fullBasePrompt,
@@ -53,7 +55,7 @@ export function useVNStudioGeneration({
   async function handleBaseUpload(event) {
     const file = event?.target?.files?.[0]
     if (!file) return
-    const url = await readFileAsDataUrl(file)
+    const url = await processSpriteCutout(await readFileAsDataUrl(file))
     basePreview.value = url
     baseSeed.value = null
     baseStatus.value = 'done'
@@ -64,7 +66,7 @@ export function useVNStudioGeneration({
   async function handleExprUpload(event, exprName) {
     const file = event?.target?.files?.[0]
     if (!file) return
-    const url = await readFileAsDataUrl(file)
+    const url = await processSpriteCutout(await readFileAsDataUrl(file))
     if (!exprStates[exprName]) {
       exprStates[exprName] = { status: 'done', url: null, error: '', seed: null }
     }
@@ -74,7 +76,8 @@ export function useVNStudioGeneration({
       url,
       seed: null,
       params: { expression: exprName },
-      method: 'upload'
+      method: 'upload',
+      autoCutout: true
     })
     scheduleSave()
     if (event?.target) event.target.value = ''
@@ -99,7 +102,7 @@ export function useVNStudioGeneration({
       if (refImage.value) {
         options.baseImage = await ensureBase64(refImage.value)
       }
-      const url = await generateImage(fullBasePrompt.value, options)
+      const url = await processSpriteCutout(await generateImage(fullBasePrompt.value, options))
       basePreview.value = url
       baseSeed.value = seed
       baseStatus.value = 'done'
@@ -115,7 +118,8 @@ export function useVNStudioGeneration({
     charResStore.setBaseImage(contactId.value, {
       url: basePreview.value,
       seed: baseSeed.value,
-      params: { width, height, prompt: fullBasePrompt.value }
+      params: { width, height, prompt: fullBasePrompt.value },
+      autoCutout: true
     })
     scheduleSave()
     return true
@@ -130,18 +134,18 @@ export function useVNStudioGeneration({
     state.error = ''
 
     try {
-      const provider = vnStore.imageGenConfig.provider
+      const provider = normalizeImageGenProvider(vnStore.imageGenConfig.provider)
       const strategy = vnStore.imageGenConfig.spriteStrategy
       const seed = resolveExpressionSeed(generationPrefs, baseSeed.value)
       const { width, height } = spriteSize.value
       const referenceOptions = await buildNovelAIReferenceOptions()
       let url
 
-      const useImg2Img = (strategy === 'img2img' || provider === 'nanobanana') && basePreview.value
+      const useImg2Img = (strategy === 'img2img' || isNaturalImageGenProvider(provider)) && basePreview.value
 
       if (useImg2Img) {
         const base64 = await ensureBase64(basePreview.value)
-        const editPrompt = provider === 'nanobanana'
+        const editPrompt = isNaturalImageGenProvider(provider)
           ? `Edit this anime character illustration: change the facial expression to "${exprName}". Keep the exact same character design, pose, clothing, hairstyle, and art style. Only modify the facial expression.`
           : `${fullBasePrompt.value}, ${exprName} expression`
 
@@ -150,7 +154,7 @@ export function useVNStudioGeneration({
           height,
           baseImage: base64,
           seed,
-          strength: provider === 'nanobanana' ? 0.45 : undefined,
+          strength: isNaturalImageGenProvider(provider) ? 0.45 : undefined,
           negativePrompt: entry.negativePrompt || undefined,
           ...referenceOptions
         })
@@ -164,6 +168,7 @@ export function useVNStudioGeneration({
         })
       }
 
+      url = await processSpriteCutout(url)
       state.url = url
       state.seed = seed
       state.status = 'done'
@@ -171,7 +176,8 @@ export function useVNStudioGeneration({
         url,
         seed,
         params: { width, height, expression: exprName },
-        method: strategy
+        method: strategy,
+        autoCutout: true
       })
       scheduleSave()
     } catch (error) {

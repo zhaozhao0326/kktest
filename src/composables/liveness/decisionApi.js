@@ -1,4 +1,4 @@
-import { applyOptionalMaxTokens } from '../api/chatCompletions'
+import { requestNonStreamingChatText } from '../api/nonStreamingChat'
 
 export async function callDecisionAPI(cfg, messages, {
   retries = 1,
@@ -6,14 +6,6 @@ export async function callDecisionAPI(cfg, messages, {
   temperature = 0.8,
   timeoutMs = 12000
 } = {}) {
-  const url = (cfg.url || '').replace(/\/$/, '') + '/chat/completions'
-  const payload = {
-    model: cfg.model,
-    messages,
-    temperature,
-    stream: false
-  }
-  applyOptionalMaxTokens(payload, cfg?.maxTokens, maxTokens)
   let lastErr
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
@@ -23,18 +15,12 @@ export async function callDecisionAPI(cfg, messages, {
       }, timeoutMs)
       : null
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${cfg.key}`
-        },
-        body: JSON.stringify(payload),
+      const { content } = await requestNonStreamingChatText(cfg, messages, {
+        temperature,
+        maxTokens,
         signal: controller?.signal
       })
-      if (!res.ok) throw new Error(`Decision API ${res.status}`)
-      const data = await res.json()
-      return data.choices?.[0]?.message?.content || ''
+      return content
     } catch (e) {
       if (e?.name === 'AbortError') {
         lastErr = new Error('Decision API timeout')

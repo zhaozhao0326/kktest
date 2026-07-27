@@ -132,20 +132,37 @@ export function useTTS() {
     audio.volume = vnStore.player.volume?.voice ?? 1.0
     vnStore.player.currentAudio = audio
 
-    audio.onended = () => {
+    const finished = new Promise((resolve) => {
+      const cleanup = () => {
+        vnStore.player.isSpeaking = false
+        if (vnStore.player.currentAudio === audio) {
+          vnStore.player.currentAudio = null
+        }
+        URL.revokeObjectURL(audioUrl)
+        resolve()
+      }
+      audio.onended = cleanup
+      audio.onerror = cleanup
+      // stopSpeaking() 只会 pause，不触发 ended，这里靠 pause 事件解除等待
+      audio.onpause = cleanup
+    })
+
+    try {
+      await audio.play()
+    } catch {
       vnStore.player.isSpeaking = false
-      vnStore.player.currentAudio = null
+      if (vnStore.player.currentAudio === audio) {
+        vnStore.player.currentAudio = null
+      }
       URL.revokeObjectURL(audioUrl)
-    }
-    audio.onerror = () => {
-      vnStore.player.isSpeaking = false
-      vnStore.player.currentAudio = null
-      URL.revokeObjectURL(audioUrl)
+      return null
     }
 
-    audio.play().catch(() => {
-      vnStore.player.isSpeaking = false
-    })
+    // 保底超时，防止音频事件丢失导致自动播放卡死
+    await Promise.race([
+      finished,
+      new Promise((resolve) => setTimeout(resolve, 30000))
+    ])
 
     return audio
   }

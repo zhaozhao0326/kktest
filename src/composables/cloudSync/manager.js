@@ -54,6 +54,20 @@ function toPositiveNumber(value) {
   return Math.max(0, Number(value || 0) || 0)
 }
 
+function normalizeUploadReason(reason, settingsStore) {
+  const normalizedReason = typeof reason === 'string' ? reason : 'auto'
+  if (normalizedReason === 'pagehide' && settingsStore?.cloudSyncForceSyncOnBackground !== true) {
+    return 'auto'
+  }
+  return normalizedReason
+}
+
+function failManualUpload(message, toastOnError) {
+  const error = new Error(message)
+  applyCloudSyncError(error, { toast: toastOnError })
+  throw error
+}
+
 function isStandaloneDisplayMode() {
   if (typeof window === 'undefined') return false
   try {
@@ -486,21 +500,31 @@ async function uploadLatestBackup(storageApi, options = {}) {
     throw new Error('Storage API unavailable for cloud sync')
   }
 
-  const client = await ensureClient(resolvedStorageApi)
-  if (!client) return false
-
   const currentMeta = resolvedStorageApi.getCurrentSnapshotMeta?.() || {}
   const localUpdatedAt = toPositiveNumber(currentMeta.localUpdatedAt)
   const hasLocalData = !!currentMeta.hasUserData
   const includeMedia = settingsStore.cloudSyncIncludeMedia === true
+  const effectiveReason = normalizeUploadReason(reason, settingsStore)
+  const storageNotReady = currentMeta.isHydrated === false || currentMeta.canPersist === false
+
+  if (storageNotReady) {
+    if (effectiveReason === 'manual') {
+      failManualUpload('本地数据还在恢复中，请稍后再上传', toastOnError)
+    }
+    return false
+  }
 
   if (!localUpdatedAt) return false
-  if (reason === 'auto' && !hasLocalData) return false
+  if (!hasLocalData) {
+    if (effectiveReason === 'manual') {
+      failManualUpload('本地还没有可上传的数据', toastOnError)
+    }
+    return false
+  }
   if (localUpdatedAt <= lastUploadedSnapshotUpdatedAt) return false
 
-  syncStore.clearError()
-  syncStore.setStatus(CLOUD_SYNC_STATUS.syncing)
-  syncStore.setPendingAction('push')
+  const client = await ensureClient(resolvedStorageApi)
+  if (!client) return false
 
   try {
     const backup = await resolvedStorageApi.buildBackupBlob({
@@ -521,7 +545,7 @@ async function uploadLatestBackup(storageApi, options = {}) {
 
     const blobSize = backup.blob?.size || 0
     if (shouldDeferAutoUpload({
-      reason,
+      reason: effectiveReason,
       policy: settingsStore.cloudSyncAutoSyncPolicy,
       customPolicy: {
         minIntervalMs: settingsStore.cloudSyncCustomMinIntervalMs,
@@ -538,6 +562,10 @@ async function uploadLatestBackup(storageApi, options = {}) {
 
     const uid = String(client.auth.currentUser?.uid || '')
     const path = `users/${uid}/latest/${CLOUD_SYNC_FILE_NAME}`
+
+    syncStore.clearError()
+    syncStore.setStatus(CLOUD_SYNC_STATUS.syncing)
+    syncStore.setPendingAction('push')
 
     await uploadBytes(
       getBackupRef(client.storage, uid),

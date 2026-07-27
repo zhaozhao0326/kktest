@@ -270,12 +270,6 @@ export function useOfflineApi() {
     return messages
   }
 
-  function hasSelectedPreset() {
-    const presetId = offlineStore.activePresetId
-    if (!presetId) return false
-    return !!offlineStore.getPreset(presetId)
-  }
-
   function buildChatMessages(contact) {
     const msgs = contact.offlineMsgs || []
     const regexRules = buildEffectiveRegexRules(contact)
@@ -343,8 +337,7 @@ export function useOfflineApi() {
     const genStartTime = Date.now()
 
     try {
-      const usePresetOnly = hasSelectedPreset()
-      const systemMsgs = usePresetOnly ? [] : buildSystemMessages(contact, { forceSessionStart: wasSessionStart })
+      const systemMsgs = buildSystemMessages(contact, { forceSessionStart: wasSessionStart })
       const presetMsgs = buildPresetMessages(contact)
       const presetParams = getPresetParams()
 
@@ -498,8 +491,7 @@ export function useOfflineApi() {
       const preset = shouldUsePresetForOpening && offlineStore.activePresetId
         ? offlineStore.getPreset(offlineStore.activePresetId)
         : null
-      const usePresetOnly = !!preset
-      const systemMsgs = usePresetOnly ? [] : buildSystemMessages(contact, { forceSessionStart: true })
+      const systemMsgs = buildSystemMessages(contact, { forceSessionStart: true })
       const presetMsgs = preset ? buildPresetMessages(contact) : []
       const presetParams = preset ? getPresetParams() : {}
 

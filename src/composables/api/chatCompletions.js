@@ -1,4 +1,5 @@
 export function parseOptionalTemperature(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return null
   const n = Number(value)
   if (!Number.isFinite(n)) return null
   if (n < 0 || n > 2) return null
@@ -12,6 +13,13 @@ export function parseOptionalMaxTokens(value) {
   const intVal = Math.floor(n)
   if (intVal > 65535) return 65535
   return intVal
+}
+
+export function normalizeReasoningEffort(value) {
+  const effort = String(value || '').trim().toLowerCase()
+  if (!effort || effort === 'default' || effort === 'off' || effort === 'none') return ''
+  if (effort === 'minimal' || effort === 'low' || effort === 'medium' || effort === 'high') return effort
+  return ''
 }
 
 export function resolveOptionalMaxTokens(...values) {
@@ -43,6 +51,10 @@ export function buildChatCompletionPayload(cfg, messages, options = {}) {
   const temperature = parseOptionalTemperature(cfg?.temperature)
   if (temperature !== null) {
     payload.temperature = temperature
+  }
+  const reasoningEffort = normalizeReasoningEffort(options.reasoningEffort ?? cfg?.reasoningEffort)
+  if (reasoningEffort) {
+    payload.reasoning_effort = reasoningEffort
   }
   // Tool calling support
   if (Array.isArray(options.tools) && options.tools.length > 0) {

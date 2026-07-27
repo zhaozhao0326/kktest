@@ -2,6 +2,7 @@ import { buildFriendlyErrorMessage } from '../errors'
 import { removeMessageIfVisiblyEmpty } from '../chatMessages'
 import { handleAssistantRequestFailure } from '../assistantMessageLifecycle'
 import { executeStreamedAssistantRequest } from '../streamingRequest'
+import { addDebugLog } from '../../useDebugLog'
 
 export async function executeChatStreamOrchestrator(options) {
   const {
@@ -73,6 +74,17 @@ export async function executeChatStreamOrchestrator(options) {
   } catch (error) {
     chatStore.ui.isTyping = false
     chatStore.ui.isThinking = false
+    addDebugLog({
+      level: 'error',
+      scope: 'api.chat',
+      message: error?.message || '聊天请求失败',
+      details: {
+        traceId,
+        model: cfg?.model || '',
+        baseUrl: cfg?.url || '',
+        error
+      }
+    })
     return handleAssistantRequestFailure({
       activeChat,
       removeMessageIfVisiblyEmpty,

@@ -25,6 +25,7 @@ export interface StorageConfigSnapshot {
   model: string
   temperature: number | null
   maxTokens: number | null
+  reasoningEffort: string
   [key: string]: unknown
 }
 
@@ -182,6 +183,8 @@ export type StorageFlushSave = (options?: StorageFlushSaveOptions) => Promise<St
 export interface StorageCurrentSnapshotMeta {
   localUpdatedAt: number
   hasUserData: boolean
+  isHydrated?: boolean
+  canPersist?: boolean
 }
 
 export interface StorageStoreLike {

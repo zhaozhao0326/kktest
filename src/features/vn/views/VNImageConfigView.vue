@@ -13,11 +13,11 @@
 
     <main class="flex-1 overflow-y-auto p-5 space-y-6 pb-24 no-scrollbar">
       <!-- Provider selector -->
-      <div class="flex p-1 bg-gray-100 rounded-2xl">
+      <div class="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-2xl">
         <button
           v-for="p in providers" :key="p.id"
           @click="vnStore.imageGenConfig.provider = p.id"
-          class="flex-1 py-2.5 text-[12px] font-bold rounded-xl transition-all"
+          class="py-2.5 text-[12px] font-bold rounded-xl transition-all"
           :class="vnStore.imageGenConfig.provider === p.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-400'"
         >
           {{ p.name }}
@@ -28,7 +28,7 @@
       <div class="bg-white border border-gray-100 rounded-[24px] p-5 flex items-center justify-between">
         <div>
           <div class="text-gray-800 text-[14px] font-bold">生成策略</div>
-          <div class="text-gray-400 text-[10px] mt-0.5 uppercase tracking-tight">立绘表情差分的生成方式</div>
+          <div class="text-gray-400 text-[10px] mt-0.5 uppercase tracking-tight">表情差分生成方式</div>
         </div>
         <div class="flex bg-gray-100 rounded-xl p-1">
           <button
@@ -48,12 +48,163 @@
         </div>
       </div>
 
+      <div class="bg-white border border-gray-100 rounded-[24px] p-5 flex items-center gap-4">
+        <div class="min-w-0 flex-1">
+          <div class="text-gray-800 text-[14px] font-bold">请求超时</div>
+          <div class="text-gray-400 text-[10px] mt-0.5 uppercase tracking-tight">单次请求最长等待时间</div>
+        </div>
+        <div class="w-28 shrink-0">
+          <input
+            v-model.number="imageRequestTimeoutSeconds"
+            type="number"
+            min="10"
+            max="600"
+            step="10"
+            class="vn-cfg-input text-center"
+            @blur="normalizeImageRequestTimeoutInput"
+          />
+          <div class="text-center text-[10px] text-gray-400 mt-1">秒</div>
+        </div>
+      </div>
+
       <!-- Provider config -->
       <transition name="fade" mode="out-in">
         <div :key="vnStore.imageGenConfig.provider" class="space-y-4">
 
+          <!-- GPT Image / OpenAI Images compatible -->
+          <template v-if="vnStore.imageGenConfig.provider === 'openai_images'">
+            <div class="vn-cfg-card space-y-4">
+              <div class="vn-cfg-group">
+                <label>API Key</label>
+                <input v-model="vnStore.imageGenConfig.openaiImages.apiKey" type="password" placeholder="sk-..." class="vn-cfg-input" />
+              </div>
+
+              <div class="vn-cfg-group">
+                <label>自定义 URL / Base URL</label>
+                <input
+                  v-model="vnStore.imageGenConfig.openaiImages.endpoint"
+                  placeholder="https://openrouter.ai/api/v1 或 https://your-api/v1"
+                  class="vn-cfg-input"
+                />
+              </div>
+
+              <div class="vn-cfg-group">
+                <label>模型 ID</label>
+                <input v-model="vnStore.imageGenConfig.openaiImages.model" placeholder="gpt-image2 或服务商模型 ID" class="vn-cfg-input" />
+              </div>
+              <div class="vn-cfg-group">
+                <label>提示词风格</label>
+                <div class="relative">
+                  <select v-model="vnStore.imageGenConfig.openaiImages.promptStyle" class="vn-cfg-input appearance-none pr-10">
+                    <option v-for="item in imagePromptStyleOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+                  </select>
+                  <i class="ph ph-caret-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                </div>
+              </div>
+            </div>
+
+            <div class="vn-cfg-card grid grid-cols-2 gap-4">
+              <div class="vn-cfg-group">
+                <label>尺寸</label>
+                <div class="relative">
+                  <select v-model="vnStore.imageGenConfig.openaiImages.size" class="vn-cfg-input appearance-none pr-10">
+                    <option v-for="item in openaiImageSizes" :key="item.value" :value="item.value">{{ item.label }}</option>
+                  </select>
+                  <i class="ph ph-caret-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                </div>
+              </div>
+              <div class="vn-cfg-group">
+                <label>质量</label>
+                <div class="relative">
+                  <select v-model="vnStore.imageGenConfig.openaiImages.quality" class="vn-cfg-input appearance-none pr-10">
+                    <option v-for="item in openaiImageQualities" :key="item.value" :value="item.value">{{ item.label }}</option>
+                  </select>
+                  <i class="ph ph-caret-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                </div>
+              </div>
+              <template v-if="vnStore.imageGenConfig.openaiImages.size === 'custom'">
+                <div class="vn-cfg-group">
+                  <label>宽度</label>
+                  <input v-model.number="vnStore.imageGenConfig.openaiImages.customWidth" type="number" step="64" min="64" max="8192" class="vn-cfg-input" />
+                </div>
+                <div class="vn-cfg-group">
+                  <label>高度</label>
+                  <input v-model.number="vnStore.imageGenConfig.openaiImages.customHeight" type="number" step="64" min="64" max="8192" class="vn-cfg-input" />
+                </div>
+              </template>
+              <div class="vn-cfg-group">
+                <label>输出格式</label>
+                <div class="relative">
+                  <select v-model="vnStore.imageGenConfig.openaiImages.outputFormat" class="vn-cfg-input appearance-none pr-10">
+                    <option v-for="item in openaiOutputFormats" :key="item.value" :value="item.value">{{ item.label }}</option>
+                  </select>
+                  <i class="ph ph-caret-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                </div>
+              </div>
+              <div class="vn-cfg-group">
+                <label>背景</label>
+                <div class="relative">
+                  <select v-model="vnStore.imageGenConfig.openaiImages.background" class="vn-cfg-input appearance-none pr-10">
+                    <option value="auto">自动</option>
+                    <option value="opaque">不透明</option>
+                    <option value="transparent">透明</option>
+                  </select>
+                  <i class="ph ph-caret-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                </div>
+              </div>
+            </div>
+
+            <div class="vn-cfg-card space-y-1">
+              <div class="flex items-center justify-between py-3">
+                <div class="min-w-0 pr-4">
+                  <div class="text-[13px] font-bold text-gray-700">允许任意宽高</div>
+                </div>
+                <button class="vn-toggle" :class="{ active: vnStore.imageGenConfig.openaiImages.allowCustomSize }" @click="vnStore.imageGenConfig.openaiImages.allowCustomSize = !vnStore.imageGenConfig.openaiImages.allowCustomSize">
+                  <div class="vn-toggle-dot"></div>
+                </button>
+              </div>
+            </div>
+
+            <details class="vn-cfg-card">
+              <summary class="vn-cfg-summary">
+                <span>高级连接设置</span>
+                <i class="ph ph-caret-down"></i>
+              </summary>
+              <div class="pt-4 space-y-4">
+                <div class="vn-cfg-group">
+                  <label>接口格式</label>
+                  <div class="relative">
+                    <select v-model="vnStore.imageGenConfig.openaiImages.apiMode" class="vn-cfg-input appearance-none pr-10">
+                      <option v-for="item in openaiApiModes" :key="item.value" :value="item.value">{{ item.label }}</option>
+                    </select>
+                    <i class="ph ph-caret-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                  </div>
+                  <p class="vn-cfg-help">NewAPI 转发 OpenRouter 时建议选 Chat Completions；只有服务商明确支持 /v1/images/generations 时选 Images API。</p>
+                </div>
+                <div class="vn-cfg-group">
+                  <label>鉴权方式</label>
+                  <div class="relative">
+                    <select v-model="vnStore.imageGenConfig.openaiImages.apiKeyMode" class="vn-cfg-input appearance-none pr-10">
+                      <option v-for="item in openaiApiKeyModes" :key="item.value" :value="item.value">{{ item.label }}</option>
+                    </select>
+                    <i class="ph ph-caret-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                  </div>
+                </div>
+                <div class="vn-cfg-group">
+                  <label>附加参数</label>
+                  <textarea
+                    v-model="vnStore.imageGenConfig.openaiImages.extraBody"
+                    rows="4"
+                    placeholder='{"modalities":["image","text"]}'
+                    class="vn-cfg-input resize-none font-mono text-[12px]"
+                  ></textarea>
+                </div>
+              </div>
+            </details>
+          </template>
+
           <!-- NovelAI -->
-          <template v-if="vnStore.imageGenConfig.provider === 'novelai'">
+          <template v-else-if="vnStore.imageGenConfig.provider === 'novelai'">
             <div class="vn-cfg-card">
               <div class="vn-cfg-group">
                 <label>API KEY</label>
@@ -95,7 +246,7 @@
                 </div>
               </div>
               <div class="vn-cfg-group">
-                <label>负面预设</label>
+                <label>反向预设</label>
                 <div class="relative">
                   <select v-model.number="vnStore.imageGenConfig.novelai.ucPreset" class="vn-cfg-input appearance-none pr-10">
                     <option :value="4">Heavy (重度)</option>
@@ -155,21 +306,12 @@
 
           <!-- NanoBanana (Gemini) -->
           <template v-else-if="vnStore.imageGenConfig.provider === 'nanobanana'">
-            <div class="vn-cfg-card grid grid-cols-2 gap-4">
+            <div class="vn-cfg-card space-y-4">
               <div class="vn-cfg-group">
-                <label>接口模式</label>
+                <label>连接方式</label>
                 <div class="relative">
                   <select v-model="vnStore.imageGenConfig.nanobanana.apiMode" class="vn-cfg-input appearance-none pr-10">
                     <option v-for="item in nanobananaApiModes" :key="item.value" :value="item.value">{{ item.label }}</option>
-                  </select>
-                  <i class="ph ph-caret-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"></i>
-                </div>
-              </div>
-              <div class="vn-cfg-group">
-                <label>鉴权方式</label>
-                <div class="relative">
-                  <select v-model="vnStore.imageGenConfig.nanobanana.apiKeyMode" class="vn-cfg-input appearance-none pr-10">
-                    <option v-for="item in nanobananaApiKeyModes" :key="item.value" :value="item.value">{{ item.label }}</option>
                   </select>
                   <i class="ph ph-caret-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"></i>
                 </div>
@@ -179,27 +321,36 @@
             <div class="vn-cfg-card space-y-4">
               <div class="vn-cfg-group">
                 <label>API Key</label>
-                <input v-model="vnStore.imageGenConfig.nanobanana.apiKey" type="password" placeholder="输入 API Key" class="vn-cfg-input" />
+                <input v-model="vnStore.imageGenConfig.nanobanana.apiKey" type="password" placeholder="留空则不发送鉴权" class="vn-cfg-input" />
               </div>
               <div class="vn-cfg-group">
-                <label>Endpoint / Base URL（可选）</label>
+                <label>接口地址</label>
                 <input
                   v-model="vnStore.imageGenConfig.nanobanana.endpoint"
                   :placeholder="vnStore.imageGenConfig.nanobanana.apiMode === 'gemini'
                     ? 'https://generativelanguage.googleapis.com/v1beta'
-                    : 'https://your-openai-compatible-api/v1'"
+                    : 'https://your-api/v1'"
                   class="vn-cfg-input"
                 />
               </div>
               <div class="vn-cfg-group">
                 <label>模型</label>
-                <input v-model="vnStore.imageGenConfig.nanobanana.model" placeholder="gemini-2.5-flash-image-preview" class="vn-cfg-input" />
+                <input v-model="vnStore.imageGenConfig.nanobanana.model" placeholder="gemini-2.5-flash-image" class="vn-cfg-input" />
+              </div>
+              <div class="vn-cfg-group">
+                <label>提示词风格</label>
+                <div class="relative">
+                  <select v-model="vnStore.imageGenConfig.nanobanana.promptStyle" class="vn-cfg-input appearance-none pr-10">
+                    <option v-for="item in imagePromptStyleOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+                  </select>
+                  <i class="ph ph-caret-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                </div>
               </div>
             </div>
 
             <div class="vn-cfg-card grid grid-cols-2 gap-4">
               <div class="vn-cfg-group">
-                <label>Aspect Ratio</label>
+                <label>比例</label>
                 <div class="relative">
                   <select v-model="vnStore.imageGenConfig.nanobanana.aspectRatio" class="vn-cfg-input appearance-none pr-10">
                     <option value="">自动（按宽高推断）</option>
@@ -209,7 +360,7 @@
                 </div>
               </div>
               <div class="vn-cfg-group">
-                <label>Image Size（Gemini 3）</label>
+                <label>图片尺寸</label>
                 <div class="relative">
                   <select v-model="vnStore.imageGenConfig.nanobanana.imageSize" class="vn-cfg-input appearance-none pr-10">
                     <option value="">自动</option>
@@ -219,7 +370,7 @@
                 </div>
               </div>
               <div class="vn-cfg-group">
-                <label>OpenAI Size（可选）</label>
+                <label>尺寸</label>
                 <input v-model="vnStore.imageGenConfig.nanobanana.openaiSize" placeholder="1024x1024" class="vn-cfg-input" />
               </div>
               <div class="vn-cfg-group">
@@ -230,22 +381,40 @@
 
             <div v-if="vnStore.imageGenConfig.nanobanana.apiMode === 'openai_chat'" class="vn-cfg-card space-y-3">
               <div class="vn-cfg-group">
-                <label>extra_body（可选 JSON）</label>
+                <label>附加参数</label>
                 <textarea
                   v-model="vnStore.imageGenConfig.nanobanana.extraBody"
                   rows="4"
-                  placeholder='{"google":{"response_modalities":["IMAGE"],"image_config":{"aspect_ratio":"1:1"}}}'
+                  placeholder='{"google":{"response_modalities":["IMAGE"],"response_format":{"image":{"aspect_ratio":"1:1"}}}}'
                   class="vn-cfg-input resize-none font-mono text-[12px]"
                 ></textarea>
               </div>
             </div>
+
+            <details class="vn-cfg-card">
+              <summary class="vn-cfg-summary">
+                <span>高级连接设置</span>
+                <i class="ph ph-caret-down"></i>
+              </summary>
+              <div class="pt-4">
+                <div class="vn-cfg-group">
+                  <label>鉴权方式</label>
+                  <div class="relative">
+                    <select v-model="vnStore.imageGenConfig.nanobanana.apiKeyMode" class="vn-cfg-input appearance-none pr-10">
+                      <option v-for="item in nanobananaApiKeyModes" :key="item.value" :value="item.value">{{ item.label }}</option>
+                    </select>
+                    <i class="ph ph-caret-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                  </div>
+                </div>
+              </div>
+            </details>
           </template>
 
           <!-- Custom -->
           <div v-else-if="vnStore.imageGenConfig.provider === 'custom'" class="vn-cfg-card space-y-4">
             <div class="vn-cfg-group">
               <label>Endpoint</label>
-              <input v-model="vnStore.imageGenConfig.custom.endpoint" placeholder="https://api.example.com/v1/..." class="vn-cfg-input" />
+              <input v-model="vnStore.imageGenConfig.custom.endpoint" placeholder="https://api.example.com/..." class="vn-cfg-input" />
             </div>
             <div class="vn-cfg-group">
               <label>API Key</label>
@@ -254,6 +423,7 @@
             <div class="vn-cfg-group">
               <label>请求模板 (JSON)</label>
               <textarea v-model="vnStore.imageGenConfig.custom.requestTemplate" rows="5" placeholder='{"prompt": "{{prompt}}"}' class="vn-cfg-input resize-none font-mono text-[12px]"></textarea>
+              <p class="vn-cfg-help" v-pre>变量：{{prompt}}、{{negative_prompt}}</p>
             </div>
             <div class="vn-cfg-group">
               <label>响应路径</label>
@@ -293,11 +463,12 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useVNStore } from '../../../stores/vn'
 import { useImageGen } from '../../../composables/useImageGen'
 import { useStorage } from '../../../composables/useStorage'
+import { isNaturalImageGenProvider, normalizeImageGenProvider } from '../../../composables/imageGen/providers'
 
 const router = useRouter()
 const vnStore = useVNStore()
@@ -309,9 +480,10 @@ const testResult = ref(null)
 const testError = ref('')
 
 const providers = [
+  { id: 'openai_images', name: 'GPT Image' },
+  { id: 'nanobanana', name: 'Gemini' },
   { id: 'novelai', name: 'NovelAI' },
-  { id: 'nanobanana', name: 'NanoBanana' },
-  { id: 'custom', name: '自定义' }
+  { id: 'custom', name: '自定义接口' }
 ]
 
 const samplers = [
@@ -333,6 +505,48 @@ const nanobananaApiKeyModes = [
   { value: 'none', label: '无鉴权' }
 ]
 
+const openaiImageSizes = [
+  { value: 'auto', label: '自动' },
+  { value: '1024x1024', label: '方图 1:1' },
+  { value: '1024x1536', label: '竖图 2:3' },
+  { value: '1536x1024', label: '横图 3:2' },
+  { value: 'custom', label: '自定义尺寸' }
+]
+
+const openaiImageQualities = [
+  { value: 'auto', label: '自动' },
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' }
+]
+
+const openaiOutputFormats = [
+  { value: 'png', label: 'PNG' },
+  { value: 'webp', label: 'WebP' },
+  { value: 'jpeg', label: 'JPEG' }
+]
+
+const openaiApiKeyModes = [
+  { value: 'bearer', label: 'Bearer' },
+  { value: 'x-api-key', label: 'x-api-key' },
+  { value: 'query', label: 'Query ?key=' },
+  { value: 'none', label: '无鉴权' }
+]
+
+const openaiApiModes = [
+  { value: 'auto', label: '自动识别' },
+  { value: 'images', label: 'Images API (/images)' },
+  { value: 'chat', label: 'Chat Completions' }
+]
+
+const imagePromptStyleOptions = [
+  { value: 'auto', label: '自动（按模型）' },
+  { value: 'gpt_image', label: 'GPT Image 自然语言' },
+  { value: 'gemini_image', label: 'Gemini 自然语言' },
+  { value: 'danbooru', label: 'Tag / Danbooru' },
+  { value: 'natural', label: '通用自然语言' }
+]
+
 const nanobananaAspectRatios = [
   '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9',
   '1:4', '4:1', '1:8', '8:1'
@@ -340,11 +554,40 @@ const nanobananaAspectRatios = [
 
 const nanobananaImageSizes = ['512px', '1K', '2K', '4K']
 
+const DEFAULT_IMAGE_REQUEST_TIMEOUT_MS = 90_000
+const MIN_IMAGE_REQUEST_TIMEOUT_MS = 10_000
+const MAX_IMAGE_REQUEST_TIMEOUT_MS = 600_000
+
+function normalizeImageRequestTimeoutMs(value, fallback = DEFAULT_IMAGE_REQUEST_TIMEOUT_MS) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return fallback
+  return Math.max(MIN_IMAGE_REQUEST_TIMEOUT_MS, Math.min(MAX_IMAGE_REQUEST_TIMEOUT_MS, Math.round(n)))
+}
+
+const imageRequestTimeoutSeconds = computed({
+  get() {
+    const n = Number(vnStore.imageGenConfig?.imageRequestTimeoutMs)
+    if (!Number.isFinite(n) || n <= 0) return DEFAULT_IMAGE_REQUEST_TIMEOUT_MS / 1000
+    return Math.round(n / 1000)
+  },
+  set(value) {
+    const seconds = Number(value)
+    if (!Number.isFinite(seconds) || seconds <= 0) return
+    vnStore.imageGenConfig.imageRequestTimeoutMs = Math.round(seconds * 1000)
+  }
+})
+
+function normalizeImageRequestTimeoutInput() {
+  vnStore.imageGenConfig.imageRequestTimeoutMs = normalizeImageRequestTimeoutMs(
+    vnStore.imageGenConfig?.imageRequestTimeoutMs
+  )
+}
+
 function ensureNanobananaDefaults(cfg) {
   if (!cfg.nanobanana || typeof cfg.nanobanana !== 'object') cfg.nanobanana = {}
   const defaults = {
     apiKey: '',
-    model: 'gemini-2.5-flash-image-preview',
+    model: 'gemini-2.5-flash-image',
     apiMode: 'gemini',
     endpoint: '',
     apiKeyMode: 'query',
@@ -352,15 +595,49 @@ function ensureNanobananaDefaults(cfg) {
     imageSize: '',
     openaiSize: '',
     temperature: 1.0,
+    promptStyle: 'auto',
     extraBody: ''
   }
   Object.entries(defaults).forEach(([k, v]) => {
     if (cfg.nanobanana[k] === undefined) cfg.nanobanana[k] = v
   })
+  if (cfg.nanobanana.model === 'gemini-2.5-flash-image-preview') {
+    cfg.nanobanana.model = defaults.model
+  }
+}
+
+function ensureOpenAIImagesDefaults(cfg) {
+  if (!cfg.openaiImages || typeof cfg.openaiImages !== 'object') cfg.openaiImages = {}
+  const defaults = {
+    apiKey: '',
+    endpoint: '',
+    model: 'gpt-image2',
+    apiMode: 'auto',
+    apiKeyMode: 'bearer',
+    size: 'auto',
+    imageSize: '',
+    customWidth: 1024,
+    customHeight: 1024,
+    allowCustomSize: false,
+    quality: 'auto',
+    outputFormat: 'png',
+    background: 'auto',
+    moderation: '',
+    responseFormat: '',
+    promptStyle: 'auto',
+    extraBody: ''
+  }
+  Object.entries(defaults).forEach(([k, v]) => {
+    if (cfg.openaiImages[k] === undefined) cfg.openaiImages[k] = v
+  })
 }
 
 onMounted(() => {
   const cfg = vnStore.imageGenConfig
+
+  const normalizedProvider = normalizeImageGenProvider(cfg.provider)
+  if (normalizedProvider && normalizedProvider !== cfg.provider) cfg.provider = normalizedProvider
+  cfg.imageRequestTimeoutMs = normalizeImageRequestTimeoutMs(cfg.imageRequestTimeoutMs)
 
   if (!cfg.novelai) cfg.novelai = {}
   const naiDefaults = {
@@ -376,6 +653,7 @@ onMounted(() => {
   })
 
   ensureNanobananaDefaults(cfg)
+  ensureOpenAIImagesDefaults(cfg)
   if (!cfg.custom) cfg.custom = { endpoint: '', apiKey: '', requestTemplate: '', responsePath: '' }
   if (!cfg.spriteStrategy) cfg.spriteStrategy = 'img2img'
 })
@@ -410,7 +688,12 @@ async function testGeneration() {
   testResult.value = null
 
   try {
-    const url = await generateImage('1girl, upper body, white background, anime style, test', {
+    const naturalPrompt = 'Anime character portrait, upper body, white background, soft lighting, clean illustration style, test image'
+    const tagPrompt = '1girl, upper body, white background, anime style, test'
+    const prompt = isNaturalImageGenProvider(vnStore.imageGenConfig.provider)
+      ? naturalPrompt
+      : tagPrompt
+    const url = await generateImage(prompt, {
       width: 512,
       height: 512,
       seed: Math.floor(Math.random() * 4294967295)
@@ -446,6 +729,37 @@ async function testGeneration() {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   padding-left: 4px;
+}
+
+.vn-cfg-help {
+  color: #9ca3af;
+  font-size: 11px;
+  line-height: 1.55;
+  padding-left: 4px;
+}
+
+.vn-cfg-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  list-style: none;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.vn-cfg-summary::-webkit-details-marker {
+  display: none;
+}
+
+details[open] .vn-cfg-summary > i {
+  transform: rotate(180deg);
+}
+
+.vn-cfg-summary > i {
+  color: #9ca3af;
+  transition: transform 0.2s ease;
 }
 
 .vn-cfg-input {

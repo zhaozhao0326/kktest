@@ -1,10 +1,14 @@
 import { isReservedPromptPresetBook } from '../../../utils/presetPromptBooks'
 import { applyTemplateVars } from './templateVars'
+import { matchesLorebookKeyword, prepareKeywordMatchContext } from './lorebookKeywordMatch'
 
 function getActiveLorebookEntries(store) {
   if (!store.activeChat) return []
 
-  const recentMessages = store.activeChat.msgs.slice(-10).map(m => m.content).join(' ')
+  const recentMessages = store.activeChat.msgs.slice(-10)
+    .map(m => typeof m?.content === 'string' ? m.content : '')
+    .join(' ')
+  const matchContext = prepareKeywordMatchContext(recentMessages)
   const activeEntries = []
   const activeBookIds = new Set()
   const presetBookIds = new Set(
@@ -37,9 +41,7 @@ function getActiveLorebookEntries(store) {
       }
 
       if (keywords.length > 0) {
-        const hasMatch = keywords.some(keyword =>
-          recentMessages.toLowerCase().includes(keyword.toLowerCase())
-        )
+        const hasMatch = keywords.some(keyword => matchesLorebookKeyword(matchContext, keyword))
         if (hasMatch) {
           activeEntries.push(entry)
         }

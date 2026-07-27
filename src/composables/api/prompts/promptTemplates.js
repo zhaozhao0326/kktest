@@ -1,10 +1,19 @@
 import {
   DEFAULT_CHAT_FORMAT_TEMPLATE,
   DEFAULT_IMAGE_GENERATION_TEMPLATE,
+  DEFAULT_IMAGE_GENERATION_TEMPLATE_GEMINI,
+  DEFAULT_IMAGE_GENERATION_TEMPLATE_GPT_IMAGE,
   DEFAULT_IMAGE_GENERATION_TEMPLATE_NL,
+  isBuiltInImageGenerationTemplate,
   isPresetChatFormatBook,
   isPresetImageGenerationBook
 } from '../../../utils/presetPromptBooks'
+import {
+  IMAGE_PROMPT_STYLE_DANBOORU,
+  IMAGE_PROMPT_STYLE_GEMINI_IMAGE,
+  IMAGE_PROMPT_STYLE_GPT_IMAGE,
+  resolveImagePromptStyle
+} from '../../imageGen/promptProfiles'
 import { applyTemplateVars } from './templateVars'
 
 function getPresetChatFormatTemplate(store) {
@@ -31,10 +40,14 @@ function getPresetImageGenerationTemplate(store) {
   if (!store || !store.allowAIImageGeneration) return ''
   if (store.globalPresetLorebookEnabled === false) return ''
 
-  const provider = String(store.vnImageGenConfig?.provider || '').trim().toLowerCase()
-  const defaultTemplate = provider === 'nanobanana'
-    ? DEFAULT_IMAGE_GENERATION_TEMPLATE_NL
-    : DEFAULT_IMAGE_GENERATION_TEMPLATE
+  const promptStyle = resolveImagePromptStyle(store.vnImageGenConfig || {})
+  const defaultTemplate = promptStyle === IMAGE_PROMPT_STYLE_DANBOORU
+    ? DEFAULT_IMAGE_GENERATION_TEMPLATE
+    : promptStyle === IMAGE_PROMPT_STYLE_GPT_IMAGE
+      ? DEFAULT_IMAGE_GENERATION_TEMPLATE_GPT_IMAGE
+      : promptStyle === IMAGE_PROMPT_STYLE_GEMINI_IMAGE
+        ? DEFAULT_IMAGE_GENERATION_TEMPLATE_GEMINI
+        : DEFAULT_IMAGE_GENERATION_TEMPLATE_NL
 
   const books = Array.isArray(store.lorebook?.books) ? store.lorebook.books : []
   const presetBook = books.find(isPresetImageGenerationBook)
@@ -50,6 +63,7 @@ function getPresetImageGenerationTemplate(store) {
     enabledEntries[0]
 
   const template = typeof preferredEntry?.content === 'string' ? preferredEntry.content.trim() : ''
+  if (isBuiltInImageGenerationTemplate(template)) return defaultTemplate
   return template || defaultTemplate
 }
 

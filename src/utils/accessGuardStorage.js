@@ -443,7 +443,11 @@ export async function readAccessDeviceStats(env, options = {}) {
     }
   }
 
-  const maxUsers = Math.max(1, Number(options.maxUsers || 500) || 500)
+  const maxUsersValue = Number(options.maxUsers)
+  const maxUsers = Number.isFinite(maxUsersValue) && maxUsersValue > 0
+    ? Math.floor(maxUsersValue)
+    : 0
+  const hasUserLimit = maxUsers > 0
   const scanCount = Math.max(10, Number(options.scanCount || 100) || 100)
   const collectedKeys = new Set()
   let cursor = '0'
@@ -458,16 +462,17 @@ export async function readAccessDeviceStats(env, options = {}) {
       const normalizedKey = normalizeText(key)
       if (!normalizedKey) continue
       collectedKeys.add(normalizedKey)
-      if (collectedKeys.size >= maxUsers) break
+      if (hasUserLimit && collectedKeys.size >= maxUsers) break
     }
 
     cursor = String(nextCursor || '0')
-  } while (cursor !== '0' && collectedKeys.size < maxUsers)
+  } while (cursor !== '0' && (!hasUserLimit || collectedKeys.size < maxUsers))
+
+  const storageKeys = [...collectedKeys].sort((left, right) => left.localeCompare(right))
+  const selectedStorageKeys = hasUserLimit ? storageKeys.slice(0, maxUsers) : storageKeys
 
   const rawUsers = await Promise.all(
-    [...collectedKeys]
-      .sort((left, right) => left.localeCompare(right))
-      .slice(0, maxUsers)
+    selectedStorageKeys
       .map(async (storageKey) => {
         const keyInfo = parseDevicesKey(env, storageKey)
         if (!keyInfo) return null

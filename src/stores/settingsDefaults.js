@@ -1,4 +1,4 @@
-import { BEIJING_TIME_ZONE, TIME_ZONE_MODE_BEIJING } from '../utils/beijingTime'
+import { BEIJING_TIME_ZONE, TIME_ZONE_MODE_DEVICE } from '../utils/beijingTime'
 import {
   DEFAULT_CLOUD_SYNC_AUTO_SYNC_POLICY,
   DEFAULT_CLOUD_SYNC_CUSTOM_POLICY
@@ -46,7 +46,7 @@ export function createDefaultGeneralSettings() {
     weatherLocationMode: 'auto',
     weatherManualCity: '',
     weatherRefreshMinutes: 60,
-    timeZoneMode: TIME_ZONE_MODE_BEIJING,
+    timeZoneMode: TIME_ZONE_MODE_DEVICE,
     customTimeZone: BEIJING_TIME_ZONE,
     offlineKeepHistory: true,
     offlineInjectToChat: false,
@@ -120,6 +120,7 @@ export function createDefaultCloudSyncSettings() {
     cloudSyncAutoSyncPolicy: DEFAULT_CLOUD_SYNC_AUTO_SYNC_POLICY,
     cloudSyncCustomMinIntervalMs: DEFAULT_CLOUD_SYNC_CUSTOM_POLICY.minIntervalMs,
     cloudSyncCustomMinDeltaBytes: DEFAULT_CLOUD_SYNC_CUSTOM_POLICY.minDeltaBytes,
+    cloudSyncForceSyncOnBackground: false,
     cloudSyncIncludeMedia: false,
     cloudSyncProvider: 'firebase',
     cloudSyncDeviceId: '',
@@ -130,9 +131,12 @@ export function createDefaultCloudSyncSettings() {
 export function createDefaultToolCallingSettings() {
   return {
     allowToolCalling: false,
+    toolCallingMode: 'intent',
     toolCallingConfig: {
       maxToolRounds: 3,
       showToolLog: false,
+      showReasoning: false,
+      notionEnabled: true,
       mcpBridgeUrl: 'http://localhost:3099',
       mcpBridgeEnabled: false,
       mcpServers: [],

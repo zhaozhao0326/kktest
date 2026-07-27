@@ -72,6 +72,16 @@
             </p>
           </label>
         </div>
+        <div class="rounded-xl border border-[var(--border-color)] px-3 py-3 flex justify-between items-center gap-3">
+          <div class="flex flex-col min-w-0">
+            <span class="text-[15px] text-[var(--text-primary)]">切后台时强制同步</span>
+            <span class="text-[12px] text-[var(--text-secondary)] leading-relaxed">{{ backgroundSyncDescription }}</span>
+          </div>
+          <IosToggle
+            :modelValue="settingsStore.cloudSyncForceSyncOnBackground"
+            @update:modelValue="handleBackgroundForceSyncToggle"
+          />
+        </div>
       </div>
       <div v-if="settingsStore.cloudSyncEnabled" class="px-4 py-3 border-t border-[var(--border-color)] flex justify-between items-center gap-3">
         <div class="flex flex-col min-w-0">
@@ -406,6 +416,13 @@ const mediaSyncDescription = computed(() => {
   return '只同步文本、设置和结构化数据，不上传本地图片、壁纸、贴图等媒体，更省免费额度。换设备拉取时，这些媒体不会跟过去。'
 })
 
+const backgroundSyncDescription = computed(() => {
+  if (settingsStore.cloudSyncForceSyncOnBackground) {
+    return '切后台、锁屏或关闭页面时会立刻尝试上传，不受冷却时间和变化门槛限制。'
+  }
+  return '切后台、锁屏或关闭页面时仍会判断普通自动同步策略，不再无视冷却时间和变化门槛。'
+})
+
 function formatTime(ts) {
   if (!ts) return ''
   const d = new Date(ts)
@@ -511,6 +528,11 @@ function handleCustomDeltaChange(rawValue) {
     Number(rawValue) * MB,
     settingsStore.cloudSyncCustomMinDeltaBytes
   )
+  scheduleSave()
+}
+
+function handleBackgroundForceSyncToggle(val) {
+  settingsStore.cloudSyncForceSyncOnBackground = val
   scheduleSave()
 }
 

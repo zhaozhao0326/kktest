@@ -10,14 +10,24 @@
       :animation="sp.animation"
       :image-url="sp.url"
       :is-exiting="!!sp.isExiting"
+      :manual-scale="getManualScale(sp.characterId)"
     />
   </div>
 </template>
 
 <script setup>
 import VNSprite from '../../../components/media/VNSprite.vue'
+import { useVNStore } from '../../../stores/vn'
+
+const vnStore = useVNStore()
 
 defineProps({
   sprites: { type: Array, default: () => [] }
 })
+
+function getManualScale(characterId) {
+  const character = vnStore.currentProject?.characters?.find(char => char.contactId === characterId)
+  const value = Number(character?.spriteScale)
+  return Number.isFinite(value) && value > 0 ? value : null
+}
 </script>

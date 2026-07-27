@@ -11,9 +11,11 @@
 import { canProxyMcpBridgeTarget } from './useMcpBridge'
 import { adaptMcpToolsToOpenAI, adaptMcpToolResult } from './api/tools/mcpToolAdapter'
 import { normalizeMcpServerIds } from '../utils/mcpServers'
+import { buildNotionApiUrl, MANAGED_NOTION_SERVER_ID, MANAGED_NOTION_SERVER_NAME } from '../utils/notionMcp'
 
 const DIRECT_CACHE_TTL_MS = 15000
 const MAX_CACHED = 20
+const MANAGED_STATUS_TTL_MS = 10000
 
 function trimString(value) {
   return String(value || '').trim()
@@ -39,19 +41,101 @@ function needsProxy(targetUrl) {
   return canProxyMcpBridgeTarget(targetUrl)
 }
 
-/**
- * 发送单条 JSON-RPC 请求到 MCP server
- */
-async function rpcCall(url, method, params = {}, authHeader = '') {
-  const body = JSON.stringify({
-    jsonrpc: '2.0',
-    id: makeId(),
-    method,
-    params
+function deriveServerName(server) {
+  const explicitName = trimString(server?.name)
+  if (explicitName) return explicitName
+
+  try {
+    const base = typeof window !== 'undefined' && window?.location?.origin
+      ? window.location.origin
+      : 'https://example.com'
+    const resolved = new URL(trimString(server?.url), base)
+    return trimString(resolved.hostname || resolved.pathname || server?.id || 'mcp')
+  } catch {
+    return trimString(server?.id) || trimString(server?.url) || 'mcp'
+  }
+}
+
+function buildManagedNotionServer() {
+  return {
+    id: MANAGED_NOTION_SERVER_ID,
+    name: MANAGED_NOTION_SERVER_NAME,
+    url: buildNotionApiUrl('mcp'),
+    authHeader: '',
+    apiKey: '',
+    enabled: true,
+    managed: true
+  }
+}
+
+function parseSsePayload(rawText, requestId) {
+  const text = trimString(rawText)
+  if (!text) return null
+
+  const events = text.split(/\r?\n\r?\n/)
+  const messages = []
+
+  events.forEach((chunk) => {
+    const dataLines = chunk
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trim())
+      .filter(Boolean)
+    if (dataLines.length === 0) return
+
+    const dataText = dataLines.join('\n')
+    try {
+      messages.push(JSON.parse(dataText))
+    } catch {
+      // ignore non-JSON SSE frames
+    }
   })
 
-  const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }
+  if (messages.length === 0) return null
+
+  const matched = messages.find((message) => String(message?.id || '') === String(requestId || ''))
+  if (matched) return matched
+
+  return messages.find((message) => message?.result || message?.error) || messages[messages.length - 1]
+}
+
+/**
+ * 发送单条 JSON-RPC 请求到 MCP server，并维护 Streamable HTTP 会话头
+ */
+async function rpcCall(
+  url,
+  method,
+  params = {},
+  authHeader = '',
+  sessionState = null,
+  options = {}
+) {
+  const isNotification = options.notification === true
+  const requestId = makeId()
+  const requestPayload = {
+    jsonrpc: '2.0',
+    method
+  }
+  if (!isNotification) {
+    requestPayload.id = requestId
+  }
+  if (params && (typeof params !== 'object' || Object.keys(params).length > 0)) {
+    requestPayload.params = params
+  }
+
+  const body = JSON.stringify(requestPayload)
+
+  const headers = {
+    'content-type': 'application/json',
+    accept: 'application/json, text/event-stream'
+  }
   if (authHeader) headers['authorization'] = authHeader
+  if (trimString(sessionState?.sessionId)) {
+    headers['mcp-session-id'] = trimString(sessionState.sessionId)
+  }
+  if (trimString(sessionState?.protocolVersion)) {
+    headers['mcp-protocol-version'] = trimString(sessionState.protocolVersion)
+  }
 
   let fetchUrl = url
   let fetchHeaders = headers
@@ -65,11 +149,47 @@ async function rpcCall(url, method, params = {}, authHeader = '') {
     // Authorization 已在 headers 里，mcp-proxy 会直接转发
   }
 
-  const res = await fetch(fetchUrl, { method: 'POST', headers: fetchHeaders, body })
+  const res = await fetch(fetchUrl, {
+    method: 'POST',
+    headers: fetchHeaders,
+    body,
+    credentials: 'same-origin'
+  })
+
+  const nextSessionId = trimString(res.headers.get('mcp-session-id')) || trimString(sessionState?.sessionId)
+  const nextProtocolVersion = trimString(res.headers.get('mcp-protocol-version')) || trimString(sessionState?.protocolVersion)
+  if (sessionState) {
+    sessionState.sessionId = nextSessionId
+    sessionState.protocolVersion = nextProtocolVersion
+  }
+
+  if (isNotification) {
+    if (!res.ok) {
+      let payload = null
+      try {
+        payload = await res.json()
+      } catch {
+        payload = null
+      }
+      const msg = payload?.error?.message || payload?.message || `HTTP ${res.status}`
+      throw new Error(`MCP request failed: ${msg}`)
+    }
+    return null
+  }
+
+  const contentType = trimString(res.headers.get('content-type')).toLowerCase()
 
   let payload
   try {
-    payload = await res.json()
+    if (contentType.includes('text/event-stream')) {
+      const sseText = await res.text()
+      payload = parseSsePayload(sseText, requestId)
+      if (!payload) {
+        throw new Error('empty_sse_response')
+      }
+    } else {
+      payload = await res.json()
+    }
   } catch {
     throw new Error(`MCP server returned non-JSON (status ${res.status})`)
   }
@@ -93,23 +213,30 @@ async function rpcCall(url, method, params = {}, authHeader = '') {
 async function discoverDirectServer(server) {
   const url = trimString(server.url)
   const authHeader = resolveAuthHeader(server)
+  const sessionState = {
+    sessionId: '',
+    protocolVersion: '2024-11-05'
+  }
 
   // MCP initialize handshake
   try {
     await rpcCall(url, 'initialize', {
-      protocolVersion: '2024-11-05',
+      protocolVersion: sessionState.protocolVersion,
       capabilities: {},
       clientInfo: { name: 'aichat-vite', version: '1.0.0' }
-    }, authHeader)
+    }, authHeader, sessionState)
+    await rpcCall(url, 'notifications/initialized', {}, authHeader, sessionState, {
+      notification: true
+    })
   } catch {
     // 部分 MCP server 不需要 initialize，继续
   }
 
-  const result = await rpcCall(url, 'tools/list', {}, authHeader)
+  const result = await rpcCall(url, 'tools/list', {}, authHeader, sessionState)
   const rawTools = Array.isArray(result?.tools) ? result.tools : []
 
   // 构造 mcpToolAdapter 期望的格式
-  const serverName = trimString(server.name) || new URL(url).hostname
+  const serverName = deriveServerName(server)
   const bridgeFormatTools = rawTools.map((tool) => ({
     serverId: server.id,
     serverName,
@@ -128,7 +255,7 @@ async function discoverDirectServer(server) {
         const callResult = await rpcCall(url, 'tools/call', {
           name: tool.originalName,
           arguments: args && typeof args === 'object' && !Array.isArray(args) ? args : {}
-        }, authHeader)
+        }, authHeader, sessionState)
         return adaptMcpToolResult(callResult)
       },
       meta: {
@@ -153,16 +280,67 @@ async function discoverDirectServer(server) {
  */
 export function useMcpDirectConnect({ settingsStore, showToast } = {}) {
   const cache = new Map() // key → { at, tools, externalExecutors }
+  let managedStatusCache = {
+    at: 0,
+    payload: null
+  }
 
-  function getDirectServers(serverIds = null) {
+  function getConfiguredDirectServers(serverIds = null) {
     const servers = Array.isArray(settingsStore?.toolCallingConfig?.mcpDirectServers)
       ? settingsStore.toolCallingConfig.mcpDirectServers
       : []
     const enabled = servers.filter((s) => s && trimString(s.url) && s.enabled !== false)
+    const hasExplicitServerIds = Array.isArray(serverIds)
     const selectedIds = normalizeMcpServerIds(serverIds)
-    if (selectedIds.length === 0) return enabled
+    if (!hasExplicitServerIds) return enabled
+    if (selectedIds.length === 0) return []
     const idSet = new Set(selectedIds)
     return enabled.filter((s) => idSet.has(trimString(s.id)))
+  }
+
+  async function getManagedNotionStatus({ force = false } = {}) {
+    if (!force && managedStatusCache.payload && (Date.now() - managedStatusCache.at) < MANAGED_STATUS_TTL_MS) {
+      return managedStatusCache.payload
+    }
+
+    try {
+      const res = await fetch(buildNotionApiUrl('status'), {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/json'
+        }
+      })
+      const payload = await res.json().catch(() => ({}))
+      managedStatusCache = {
+        at: Date.now(),
+        payload: payload && typeof payload === 'object' ? payload : {}
+      }
+      return managedStatusCache.payload
+    } catch {
+      managedStatusCache = {
+        at: Date.now(),
+        payload: {}
+      }
+      return managedStatusCache.payload
+    }
+  }
+
+  async function getManagedDirectServers({ force = false, serverIds } = {}) {
+    if (settingsStore?.toolCallingConfig?.notionEnabled !== true) return []
+
+    const hasExplicitServerIds = Array.isArray(serverIds)
+    const selectedIds = normalizeMcpServerIds(serverIds)
+    if (hasExplicitServerIds && selectedIds.length === 0) return []
+    if (selectedIds.length > 0 && !selectedIds.includes(MANAGED_NOTION_SERVER_ID)) {
+      return []
+    }
+
+    const status = await getManagedNotionStatus({ force })
+    if (!status?.supported || !status?.connected) return []
+
+    return [buildManagedNotionServer()]
   }
 
   function buildCacheKey(servers) {
@@ -176,7 +354,13 @@ export function useMcpDirectConnect({ settingsStore, showToast } = {}) {
   }
 
   async function discoverMcpDirectTools({ force = false, serverIds } = {}) {
-    const servers = getDirectServers(serverIds)
+    if (Array.isArray(serverIds) && normalizeMcpServerIds(serverIds).length === 0) {
+      return { tools: [], externalExecutors: new Map() }
+    }
+
+    const configuredServers = getConfiguredDirectServers(serverIds)
+    const managedServers = await getManagedDirectServers({ force, serverIds })
+    const servers = [...configuredServers, ...managedServers]
     if (servers.length === 0) return { tools: [], externalExecutors: new Map() }
 
     const cacheKey = buildCacheKey(servers)
@@ -216,13 +400,18 @@ export function useMcpDirectConnect({ settingsStore, showToast } = {}) {
 
   return {
     discoverDirectTools: discoverMcpDirectTools,
-    getDirectServers,
+    getDirectServers: getConfiguredDirectServers,
     testDirectServer(serverId) {
-      const server = getDirectServers().find((s) => trimString(s.id) === trimString(serverId))
-      if (!server) return Promise.resolve({ ok: false, toolsCount: 0, toolNames: [], error: '未找到该服务器' })
-      return discoverDirectServer(server)
-        .then(({ tools }) => ({ ok: true, toolsCount: tools.length, toolNames: tools.map((t) => t.name) }))
-        .catch((err) => ({ ok: false, toolsCount: 0, toolNames: [], error: err?.message || String(err) }))
+      return (async () => {
+        let server = getConfiguredDirectServers().find((s) => trimString(s.id) === trimString(serverId))
+        if (!server && trimString(serverId) === MANAGED_NOTION_SERVER_ID) {
+          server = (await getManagedDirectServers({ force: true, serverIds: [serverId] }))[0]
+        }
+        if (!server) return { ok: false, toolsCount: 0, toolNames: [], error: '未找到该服务器' }
+        return discoverDirectServer(server)
+          .then(({ tools }) => ({ ok: true, toolsCount: tools.length, toolNames: tools.map((t) => t.name) }))
+          .catch((err) => ({ ok: false, toolsCount: 0, toolNames: [], error: err?.message || String(err) }))
+      })()
     },
     refreshDirectTools(options = {}) {
       return discoverMcpDirectTools({ ...options, force: true })

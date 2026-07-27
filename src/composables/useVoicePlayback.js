@@ -1,5 +1,6 @@
 import { useContactsStore } from '../stores/contacts'
 import { useSettingsStore } from '../stores/settings'
+import { sanitizeMiniMaxVoiceId } from '../utils/minimaxConfig'
 import {
   buildMiniMaxCacheKey,
   extractEmotionTag,
@@ -100,6 +101,20 @@ async function synthesizeEdge({ endpoint, text, voiceId }) {
   return URL.createObjectURL(blob)
 }
 
+function normalizeId(value) {
+  return String(value ?? '').trim()
+}
+
+function normalizeMiniMaxVoiceId(value) {
+  return sanitizeMiniMaxVoiceId(value)
+}
+
+function findContactById(contacts, contactId) {
+  const id = normalizeId(contactId)
+  if (!id || !Array.isArray(contacts)) return null
+  return contacts.find(contact => normalizeId(contact?.id) === id) || null
+}
+
 async function loadMiniMaxUrlFromPersistentCache(cacheKey) {
   const persisted = await readMiniMaxCachedAudio(cacheKey)
   if (!persisted) return null
@@ -165,28 +180,26 @@ function resolveVoiceId({ contactsStore, settingsStore }, options, mode) {
     contactId = ''
   } = options || {}
   const cfg = settingsStore.voiceTtsConfig || {}
-  const directContact = String(contactId || '').trim()
-    ? contactsStore.contacts?.find(c => c && c.id === String(contactId || '').trim()) || null
-    : null
-  const activeChatId = String(contactsStore.activeChat?.id || '').trim()
+  const directContact = findContactById(contactsStore.contacts, contactId)
+  const activeChatId = normalizeId(contactsStore.activeChat?.id)
   const activeChat = activeChatId
-    ? contactsStore.contacts?.find(c => c && c.id === activeChatId) || contactsStore.activeChat
+    ? findContactById(contactsStore.contacts, activeChatId) || contactsStore.activeChat
     : contactsStore.activeChat
   if (directContact) {
     return mode === 'minimax'
-      ? String(directContact.minimaxVoiceId || cfg.minimaxVoiceId || '').trim()
+      ? (normalizeMiniMaxVoiceId(directContact.minimaxVoiceId) || normalizeMiniMaxVoiceId(cfg.minimaxVoiceId))
       : String(directContact.edgeVoiceId || cfg.edgeVoiceId || '').trim()
   }
 
   if (!activeChat) {
     return mode === 'minimax'
-      ? (cfg.minimaxVoiceId || '')
+      ? normalizeMiniMaxVoiceId(cfg.minimaxVoiceId)
       : (cfg.edgeVoiceId || '')
   }
 
   if (isUser) {
     return mode === 'minimax'
-      ? (cfg.minimaxVoiceId || '')
+      ? normalizeMiniMaxVoiceId(cfg.minimaxVoiceId)
       : (cfg.edgeVoiceId || '')
   }
 
@@ -196,9 +209,10 @@ function resolveVoiceId({ contactsStore, settingsStore }, options, mode) {
     const msg = activeChat?.msgs?.find(m => m && m.id === msgId) || null
     if (activeChat?.type === 'group' && msg) {
       const members = Array.isArray(activeChat.members) ? activeChat.members : []
-      const member = (msg.senderId && members.find(m => m.id === msg.senderId)) || null
+      const senderId = normalizeId(msg.senderId)
+      const member = (senderId && members.find(m => normalizeId(m?.id) === senderId)) || null
       const contactId = member?.contactId || null
-      const found = contactId ? contactsStore.contacts?.find(c => c && c.id === contactId) : null
+      const found = findContactById(contactsStore.contacts, contactId)
       if (found) contact = found
     }
   } catch {
@@ -206,7 +220,7 @@ function resolveVoiceId({ contactsStore, settingsStore }, options, mode) {
   }
 
   if (mode === 'minimax') {
-    return String(contact?.minimaxVoiceId || cfg.minimaxVoiceId || '').trim()
+    return normalizeMiniMaxVoiceId(contact?.minimaxVoiceId) || normalizeMiniMaxVoiceId(cfg.minimaxVoiceId)
   }
   return String(contact?.edgeVoiceId || cfg.edgeVoiceId || '').trim()
 }
@@ -294,7 +308,7 @@ export function useVoicePlayback() {
         msgId,
         isUser,
         contactId
-      }, 'minimax') || String(cfg.minimaxVoiceId || '').trim()
+      }, 'minimax') || normalizeMiniMaxVoiceId(cfg.minimaxVoiceId)
       if (!voiceId) throw new Error('MiniMax voice ID is not configured')
       const hasExplicitEmotion = String(emotion || '').trim().length > 0
       const emotionKey = hasExplicitEmotion

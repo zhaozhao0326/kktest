@@ -1,17 +1,20 @@
 import { estimateTokens } from '../../utils/tokens'
+import { normalizeRoleAliasesToTemplateVars } from '../api/prompts'
 import { addCoreMemory } from './coreMemory'
 import {
   DEFAULT_MEMORY_SETTINGS,
   clampNumber,
+  getTemplateVarsForContact,
   initContactMemory,
   isNearDuplicateMemoryContent,
   PRIORITY_ORDER,
   tryParseJsonArray
 } from './shared'
 
-export function buildAutoMemoryExtractionPrompt() {
+export function buildAutoMemoryExtractionPrompt(contact, store) {
+  const vars = getTemplateVarsForContact(store, contact)
   return [
-    '请作为“严格记忆筛选器”，从以下对话中提取值得长期记住的信息。使用{{char}}和{{user}}。',
+    `请作为”严格记忆筛选器”，从以下对话中提取值得长期记住的信息。当前 {{user}} = “${vars.user}”, {{char}} = “${vars.char}”。在输出中使用 {{user}} 和 {{char}} 代替具体名字。`,
     '',
     '硬性要求（宁可漏记，也不要乱记）：',
     '1) 只记录“明确 + 稳定 + 未来复用价值高”的信息（半年后仍可能有用）。',
@@ -20,10 +23,11 @@ export function buildAutoMemoryExtractionPrompt() {
     '4) 情绪类：只记录“长期/反复/基线”状态（例如长期焦虑），不要记录“今天/此刻”的短期情绪。',
     '5) 每条 content 必须原子化、短句、<= 30 字。',
     '输出严格 JSON 数组（不要 Markdown，不要解释），格式：',
-    '[{"content":"...", "priority":"high|normal|low", "category":"preference|relationship|emotion|fact|routine|people", "confidence":"high|medium|low"}]',
+    '[{"content":"...", "priority":"high|normal|low", "category":"preference|relationship|emotion|fact|routine|people", "confidence":"high|medium|low", "entity":"...", "entityType":"person|pet|place|organization|topic|other"}]',
     '- routine(日常)：日常习惯、作息规律、固定行程',
     '- people(人物)：用户提到的重要的人（家人、朋友、同事等）及其关系',
     '- confidence：用户明确说出且事实确凿的用 high，上下文可推断的用 medium，不太确定的用 low',
+    '- entity/entityType：如果这条记忆明显围绕某个具体人物、宠物、地点、组织或主题，填主实体；否则留空',
     '没有要记住的就输出：[]'
   ].join('\n')
 }
@@ -67,7 +71,7 @@ export function buildConversationSnippet(contact, startMsgId, options = {}) {
   // Keep extracted memories relevant: process the most recent chunk.
   const chunk = textMsgs.slice(-maxMessages)
   const snippet = chunk.map(m => {
-    const who = m.role === 'user' ? '用户' : (m.senderName || '助手')
+    const who = m.role === 'user' ? '{{user}}' : (m.senderName || '{{char}}')
     return `${who}: ${m.content}`
   }).join('\n')
 
@@ -87,8 +91,8 @@ export function shouldAttemptAutoMemoryExtraction(snippet) {
 
   const lines = s.split('\n').filter(Boolean)
   const userLines = lines
-    .filter(line => line.startsWith('用户:'))
-    .map(line => line.replace(/^用户:\s*/, '').trim())
+    .filter(line => line.startsWith('{{user}}:') || line.startsWith('用户:'))
+    .map(line => line.replace(/^(\{\{user\}\}|用户):\s*/, '').trim())
     .filter(Boolean)
 
   // Skip if no user messages at all
@@ -103,7 +107,7 @@ export function shouldAttemptAutoMemoryExtraction(snippet) {
 
   // Check both user and assistant text for stable-fact cues
   const allText = lines
-    .map(line => line.replace(/^(用户|助手|AI):\s*/, '').trim())
+    .map(line => line.replace(/^(\{\{user\}\}|\{\{char\}\}|用户|助手|AI):\s*/, '').trim())
     .filter(Boolean)
     .join('\n')
 
@@ -193,7 +197,7 @@ export async function extractMemoriesWithAI(contact, deps = {}) {
 
   aiExtractInFlight.set(contactId, true)
   try {
-    const prompt = buildAutoMemoryExtractionPrompt()
+    const prompt = buildAutoMemoryExtractionPrompt(contact, deps.store)
     const result = await callSummaryAPI(prompt, snippet, contact, { temperature: 0.2 })
     if (!result.success) return { added: [], updated: [], error: result.error, cursorUpdated: false }
 
@@ -214,20 +218,39 @@ export async function extractMemoriesWithAI(contact, deps = {}) {
       const confidence = item && typeof item === 'object' ? item.confidence : null
       if (typeof content !== 'string' || !content.trim()) continue
 
-      const trimmed = content.trim()
+      const trimmed = normalizeRoleAliasesToTemplateVars(content.trim())
       // Avoid extremely long "memories" cluttering the prompt.
       const normalized = trimmed.length > 240 ? (trimmed.slice(0, 240).trimEnd() + '...') : trimmed
       if (normalized.length < 8) continue
 
-      const isNearDuplicate = (contact.memory.core || []).some(m => isNearDuplicateMemoryContent(normalized, m?.content))
-      if (isNearDuplicate) continue
-
       // Auto-promote high-confidence extractions
       const autoPromote = confidence === 'high'
+      const duplicate = (contact.memory.core || []).find(m => isNearDuplicateMemoryContent(normalized, m?.content))
+
+      if (duplicate) {
+        const mem = addCoreMemory(contact, duplicate.content, 'extracted', {
+          priority: PRIORITY_ORDER[priority] != null ? priority : 'normal',
+          category: item.category || null,
+          confidence,
+          entity: item.entity || null,
+          entityType: item.entityType || null,
+          enabled: autoPromote
+        })
+        if (!mem) continue
+
+        if (existingIds.has(mem.id)) updated.push(mem)
+        else added.push(mem)
+
+        count++
+        continue
+      }
 
       const mem = addCoreMemory(contact, normalized, 'extracted', {
         priority: PRIORITY_ORDER[priority] != null ? priority : 'normal',
         category: item.category || null,
+        confidence,
+        entity: item.entity || null,
+        entityType: item.entityType || null,
         enabled: autoPromote
       })
       if (!mem) continue

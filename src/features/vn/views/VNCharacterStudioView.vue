@@ -44,13 +44,13 @@
             <textarea
               v-model="entry.basePrompt"
               rows="4"
-              :placeholder="isNanoBanana
+              :placeholder="isNaturalImageProvider
                 ? '自然语言描述角色外观，如: 蓝色长发、红色眼睛的少女，穿着校服，动漫风格'
                 : '英文外观描述，如: 1girl, long blue hair, red eyes, school uniform, upper body, white background'"
               class="vn-input resize-none"
             ></textarea>
           </div>
-          <div v-if="!isNanoBanana" class="vn-field">
+          <div v-if="!isNaturalImageProvider" class="vn-field">
             <label>画师串 (Artist Tags)</label>
             <input v-model="entry.artistTags" placeholder="artist:xxx, ..." class="vn-input" />
           </div>
@@ -69,8 +69,8 @@
               <img v-if="refImage" :src="refImage" class="w-6 h-6 rounded object-cover" />
               <i v-else class="ph ph-image-square text-lg"></i>
               {{ refImage
-                ? (isNanoBanana ? '参考图已上传 (点击替换)' : '基底重绘图已上传 (点击替换)')
-                : (isNanoBanana ? '上传参考图 (推荐，用于 img2img)' : '上传基底重绘图 (可选)') }}
+                ? (isNaturalImageProvider ? '参考图已上传 (点击替换)' : '基底重绘图已上传 (点击替换)')
+                : (isNaturalImageProvider ? '上传参考图 (推荐，用于 img2img)' : '上传基底重绘图 (可选)') }}
             </button>
           </div>
 
@@ -84,7 +84,7 @@
           </button>
         </div>
 
-        <div v-if="!isNanoBanana" class="vn-studio-card space-y-4">
+        <div v-if="!isNaturalImageProvider" class="vn-studio-card space-y-4">
           <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-[0.15em]">02. 生图增强</h3>
 
           <div class="flex items-center justify-between">
@@ -427,6 +427,12 @@
                 </button>
               </div>
             </div>
+            <div
+              v-if="expr.status === 'error' && expr.error"
+              class="px-3 pb-3 -mt-1 text-[10px] leading-snug text-red-500 break-words"
+            >
+              {{ expr.error }}
+            </div>
           </div>
         </div>
 
@@ -450,6 +456,7 @@ import { useContactsStore } from '../../../stores/contacts'
 import { useImageGen } from '../../../composables/useImageGen'
 import { useCharacterGen } from '../../../composables/useCharacterGen'
 import { useStorage } from '../../../composables/useStorage'
+import { isNaturalImageGenProvider, normalizeImageGenProvider } from '../../../composables/imageGen/providers'
 import { useVNStudioReferences } from '../composables/useVNStudioReferences'
 import { useVNStudioGeneration } from '../composables/useVNStudioGeneration'
 
@@ -458,7 +465,7 @@ const router = useRouter()
 const vnStore = useVNStore()
 const charResStore = useCharacterResourcesStore()
 const contactsStore = useContactsStore()
-const { generateImage } = useImageGen()
+const { generateImage, processSpriteCutout } = useImageGen()
 const { generateCharacterPrompts } = useCharacterGen()
 const { scheduleSave } = useStorage()
 
@@ -481,8 +488,8 @@ const entry = reactive({
   customExpressions: ['normal', 'happy', 'sad', 'angry', 'surprised', 'shy']
 })
 
-const provider = computed(() => vnStore.imageGenConfig.provider)
-const isNanoBanana = computed(() => provider.value === 'nanobanana')
+const provider = computed(() => normalizeImageGenProvider(vnStore.imageGenConfig.provider))
+const isNaturalImageProvider = computed(() => isNaturalImageGenProvider(provider.value))
 
 const {
   generationPrefs,
@@ -518,7 +525,7 @@ const spriteAspectStyle = computed(() => ({
 }))
 
 const fullBasePrompt = computed(() => {
-  if (isNanoBanana.value) {
+  if (isNaturalImageProvider.value) {
     const description = String(entry.basePrompt || '').trim()
     return description
       ? `Anime character portrait: ${description}, upper body, white background, clean illustration style`
@@ -551,6 +558,7 @@ const {
   vnStore,
   charResStore,
   generateImage,
+  processSpriteCutout,
   scheduleSave,
   spriteSize,
   fullBasePrompt,

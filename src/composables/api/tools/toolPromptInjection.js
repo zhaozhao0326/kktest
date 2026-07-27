@@ -16,6 +16,7 @@ export function buildToolCallingPrompt(tools) {
 
   const names = tools.map(t => t.function?.name).filter(Boolean)
   if (names.length === 0) return ''
+  const hasDiaryTool = names.includes('write_diary')
 
   return [
     '你拥有以下后台能力，可在需要时静默调用：',
@@ -25,7 +26,13 @@ export function buildToolCallingPrompt(tools) {
     '- 这些能力主要用于记忆、日程、日记或内部状态更新。',
     '- 仅在确实需要写入或记录时才调用，正常聊天直接回复即可。',
     '- 不要向用户提及“工具”“函数”“调用过程”等词，也不要暴露参数细节。',
-    '- 调用后继续自然对话，把结果融入正常回复。'
+    '- 调用后继续自然对话，把结果融入正常回复。',
+    ...(hasDiaryTool
+      ? [
+          '- write_diary 只用于记录“用户本人”的日记；只有在用户明确要写/补记日记，或明确要求“帮我记成日记”时才调用。',
+          '- write_diary 的正文必须使用用户视角，不能出现“作为AI”“我是AI”“用户……”这类助手/角色视角表述。'
+        ]
+      : [])
   ].join('\n')
 }
 

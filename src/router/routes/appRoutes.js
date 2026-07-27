@@ -15,6 +15,11 @@ export const appRoutes = [
     component: () => import('../../views/StorageAnalysisView.vue')
   },
   {
+    path: '/debug-logs',
+    name: 'debug-logs',
+    component: () => import('../../views/DebugLogView.vue')
+  },
+  {
     path: '/lorebook',
     name: 'lorebook',
     component: () => import('../../views/LorebookView.vue')

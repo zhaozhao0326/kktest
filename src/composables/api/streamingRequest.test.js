@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   buildChatCompletionPayload: vi.fn(),
   fetchOpenAICompat: vi.fn(),
   readOpenAICompatError: vi.fn(),
+  estimatePromptBreakdownFromMessages: vi.fn(),
   estimateUsageFromMessages: vi.fn(),
   recordUsage: vi.fn()
 }))
@@ -23,6 +24,7 @@ vi.mock('./openaiCompat', () => ({
 }))
 
 vi.mock('./usage', () => ({
+  estimatePromptBreakdownFromMessages: mocks.estimatePromptBreakdownFromMessages,
   estimateUsageFromMessages: mocks.estimateUsageFromMessages,
   recordUsage: mocks.recordUsage
 }))
@@ -41,6 +43,7 @@ describe('streamingRequest', () => {
       request: { targetUrl: 'https://api.test/chat' },
       response: { ok: true }
     })
+    mocks.estimatePromptBreakdownFromMessages.mockReturnValue(null)
     mocks.estimateUsageFromMessages.mockReturnValue({ totalTokens: 3 })
   })
 
@@ -56,9 +59,11 @@ describe('streamingRequest', () => {
   })
 
   it('executes a streamed request and records usage', async () => {
-    mocks.consumeChatCompletionsStream.mockImplementation(async (_res, onDelta) => {
+    mocks.consumeChatCompletionsStream.mockImplementation(async (_res, onDelta, options) => {
+      options.onReasoningDelta('先检查')
+      options.onReasoningDelta('先检查工具参数')
       onDelta('hello')
-      return { finishReason: 'stop' }
+      return { finishReason: 'stop', reasoningContent: '先检查工具参数' }
     })
 
     const activeChat = { msgs: [] }
@@ -99,9 +104,19 @@ describe('streamingRequest', () => {
       id: 'msg_1',
       senderName: 'Alice',
       content: 'hello',
-      traceId: 'trace_1'
+      traceId: 'trace_1',
+      reasoningContent: '先检查工具参数',
+      reasoningLogs: [{ content: '先检查工具参数', round: 1 }],
+      reasoningStreaming: false
     })
-    expect(mocks.recordUsage).toHaveBeenCalledWith(activeChat, { finishReason: 'stop' }, { totalTokens: 3 }, 'gpt-test')
+    expect(activeChat.msgs[0]).not.toHaveProperty('reasoningStreamingRound')
+    expect(mocks.recordUsage).toHaveBeenCalledWith(
+      activeChat,
+      { finishReason: 'stop', reasoningContent: '先检查工具参数' },
+      { totalTokens: 3 },
+      'gpt-test',
+      { promptBreakdown: null }
+    )
     expect(result).toMatchObject({
       url: 'https://api.test/chat',
       createdMsgId: 'msg_1',
